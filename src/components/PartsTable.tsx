@@ -1,5 +1,12 @@
 import { useState } from "react";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Pencil, Trash2, Search } from "lucide-react";
@@ -14,10 +21,10 @@ interface SparePart {
   category: string;
   manufacturer: string | null;
   description: string | null;
-  selling_price: number; // ✅ renamed from price
-  cost_price: number | null;
+  selling_price: number;
+  cost_price: number | null; // ✅ existing field
   stock_quantity: number;
-  min_stock: number; // ✅ renamed from minimum_stock
+  min_stock: number;
   unit: string;
   location: string | null;
 }
@@ -74,33 +81,47 @@ const PartsTable = ({ parts, onUpdate }: PartsTableProps) => {
               <TableHead>Category</TableHead>
               <TableHead>Manufacturer</TableHead>
               <TableHead>Stock</TableHead>
+              <TableHead>Cost Price</TableHead> {/* ✅ Added Column */}
               <TableHead>Selling Price</TableHead>
               <TableHead>Location</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
+
           <TableBody>
             {filteredParts.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                <TableCell
+                  colSpan={9}
+                  className="text-center py-8 text-muted-foreground"
+                >
                   No parts found
                 </TableCell>
               </TableRow>
             ) : (
               filteredParts.map((part) => (
-                <TableRow key={part.id} className="hover:bg-muted/30 transition-colors">
-                  <TableCell className="font-mono font-medium">{part.part_number}</TableCell>
+                <TableRow
+                  key={part.id}
+                  className="hover:bg-muted/30 transition-colors"
+                >
+                  <TableCell className="font-mono font-medium">
+                    {part.part_number}
+                  </TableCell>
                   <TableCell className="font-medium">{part.part_name}</TableCell>
                   <TableCell>
                     <span className="inline-flex items-center rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">
                       {part.category}
                     </span>
                   </TableCell>
-                  <TableCell className="text-muted-foreground">{part.manufacturer || "-"}</TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {part.manufacturer || "-"}
+                  </TableCell>
+
+                  {/* 🧮 Stock Column */}
                   <TableCell>
                     <span
                       className={`font-medium ${
-                        part.stock_quantity <= part.min_stock // ✅ updated
+                        part.stock_quantity <= part.min_stock
                           ? "text-destructive"
                           : "text-foreground"
                       }`}
@@ -108,10 +129,22 @@ const PartsTable = ({ parts, onUpdate }: PartsTableProps) => {
                       {part.stock_quantity} {part.unit}
                     </span>
                   </TableCell>
-                  <TableCell className="font-semibold">
-                    ₹{part.selling_price.toFixed(2)} {/* ✅ updated */}
+
+                  {/* 💰 Cost Price Column */}
+                  <TableCell className="font-semibold text-center">
+                    ₹{(part.cost_price || 0).toFixed(2)}
                   </TableCell>
-                  <TableCell className="text-muted-foreground">{part.location || "-"}</TableCell>
+
+                  {/* 💵 Selling Price Column */}
+                  <TableCell className="font-semibold text-center">
+                    ₹{part.selling_price.toFixed(2)}
+                  </TableCell>
+
+                  <TableCell className="text-muted-foreground">
+                    {part.location || "-"}
+                  </TableCell>
+
+                  {/* ✏️ 🗑️ Actions */}
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
                       <Button
