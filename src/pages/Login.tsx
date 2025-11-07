@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { Eye, EyeOff } from "lucide-react"; // 👁️ import icons for toggle
 
 const Login = () => {
   const navigate = useNavigate();
-  const [userId, setUserId] = useState(""); // ✅ changed from email
+  const [userId, setUserId] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false); // 👈 controls visibility
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -14,21 +16,20 @@ const Login = () => {
     setLoading(true);
 
     try {
-      // ✅ Call your backend API for authentication
       const response = await fetch("http://localhost:3000/api/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, password }), // ✅ send userId instead of email
+        body: JSON.stringify({ userId, password }),
       });
 
       if (response.ok) {
-        sessionStorage.setItem("auth", "true"); // ✅ auto-clears on browser close
+        sessionStorage.setItem("auth", "true");
         navigate("/");
       } else {
         const data = await response.json().catch(() => ({}));
         setError(data.message || "Invalid credentials. Please try again.");
       }
-    } catch (err) {
+    } catch {
       setError("Unable to connect to server. Please try again later.");
     } finally {
       setLoading(false);
@@ -50,6 +51,7 @@ const Login = () => {
         )}
 
         <div className="space-y-4">
+          {/* 🧩 User ID input */}
           <input
             type="text"
             placeholder="User ID"
@@ -58,16 +60,34 @@ const Login = () => {
             className="w-full p-3 border rounded-lg outline-none focus:ring-2 focus:ring-red-500"
             required
           />
-          <input
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="w-full p-3 border rounded-lg outline-none focus:ring-2 focus:ring-red-500"
-            required
-          />
+
+          {/* 🔐 Password input with toggle */}
+          <div className="relative">
+            <input
+              type={showPassword ? "text" : "password"} // 👈 toggle visibility
+              placeholder="Password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full p-3 border rounded-lg outline-none focus:ring-2 focus:ring-red-500 pr-10"
+              required
+            />
+            {/* 👁️ Eye icon toggle button */}
+            <button
+              type="button"
+              onClick={() => setShowPassword((prev) => !prev)}
+              className="absolute inset-y-0 right-3 flex items-center text-gray-500 hover:text-gray-700"
+              tabIndex={-1}
+            >
+              {showPassword ? (
+                <EyeOff className="w-5 h-5" />
+              ) : (
+                <Eye className="w-5 h-5" />
+              )}
+            </button>
+          </div>
         </div>
 
+        {/* 🔘 Submit Button */}
         <button
           type="submit"
           disabled={loading}
