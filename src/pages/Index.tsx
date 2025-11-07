@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { Wrench } from "lucide-react";
 import Dashboard from "@/components/Dashboard";
 import PartsTable from "@/components/PartsTable";
 import AddPartDialog from "@/components/AddPartDialog";
+import Navbar from "@/components/Navbar";
+import EzzyLogo from "@/assets/ezzy-logo.png";
 
 interface SparePart {
   id: string;
@@ -23,10 +24,12 @@ interface SparePart {
 const Index = () => {
   return (
     <div className="min-h-screen bg-background text-gray-900">
+      <Navbar />
+
       {/* Hero Section */}
       <section className="flex flex-col items-center justify-center min-h-[70vh] bg-white text-gray-900 px-4 border-b border-gray-200">
         <img
-          src="/ezzy-logo.png"
+          src={EzzyLogo}
           alt="Ezzy Auto Parts Logo"
           className="w-48 md:w-64 lg:w-72 mb-6"
         />
