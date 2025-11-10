@@ -15,4 +15,11 @@ export default defineConfig(({ mode }) => ({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+
+  // ✅ Add this section to control build warnings and performance
+  build: {
+    chunkSizeWarningLimit: 1600, // increase limit from default 500 KB → 1.6 MB
+    sourcemap: false,            // optional: turn off source maps for smaller build
+    minify: "esbuild",           // ensure efficient minification
+  },
 }));
