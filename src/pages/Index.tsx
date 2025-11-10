@@ -1,7 +1,7 @@
 import { useState } from "react";
 import Dashboard from "@/components/Dashboard";
 import Navbar from "@/components/Navbar";
-import EzzyLogo from "@/assets/logo.png";
+import EzzyLogo from "@/assets/ezzylogo.png";
 
 const Index = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
