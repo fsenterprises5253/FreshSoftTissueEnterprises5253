@@ -1,10 +1,10 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
 import { LayoutGrid, FileText, LogOut } from "lucide-react";
-import EzzyLogo from "@/assets/ezzy-logo.png";
+import logo from "@/assets/logo.png";
 
 interface SidebarProps {
-  collapsed?: boolean; // ✅ Allow 'collapsed' prop
+  collapsed?: boolean;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ collapsed = false }) => {
@@ -21,11 +21,9 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed = false }) => {
         collapsed ? "w-20" : "w-64"
       }`}
     >
-      {/* Logo Section */}
-    
 
       {/* Navigation Section */}
-      <nav className="flex-1 space-y-2 px-4">
+      <nav className="flex-1 space-y-2 px-4 mt-4">
         <button
           onClick={() => navigate("/")}
           className="flex items-center gap-3 w-full p-3 rounded-lg text-gray-700 hover:bg-blue-100 hover:text-blue-600"
@@ -35,19 +33,18 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed = false }) => {
         </button>
 
         <button
-        onClick={() => {
+          onClick={() => {
             navigate("/billing");
-            // Force refresh effect in Billing.tsx
             window.dispatchEvent(new Event("billing-navigation"));
           }}
           className="flex items-center gap-3 w-full p-3 rounded-lg text-gray-700 hover:bg-blue-100 hover:text-blue-600"
         >
           <FileText size={18} />
           {!collapsed && "Billing"}
-      </button>
+        </button>
       </nav>
 
-      {/* Logout Button at Bottom */}
+      {/* Logout Button */}
       <div className="p-4 border-t">
         <button
           onClick={handleLogout}

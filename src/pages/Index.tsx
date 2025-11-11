@@ -3,7 +3,7 @@ import Dashboard from "@/components/Dashboard";
 import Navbar from "@/components/Navbar";
 
 // ✅ Import image from src/assets
-import ezzyLogo from "@/assets/ezzylogo.png";
+import logo from "@/assets/logo.png";
 
 const Index = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -21,7 +21,7 @@ const Index = () => {
       <section className="flex flex-col items-center justify-center min-h-[70vh] bg-white text-gray-900 px-4 border-b border-gray-200 mt-16">
         {/* ✅ Use imported logo */}
         <img
-          src={ezzyLogo}
+          src={logo}
           alt="Ezzy Auto Parts Logo"
           className="h-80 w-auto mb-6 object-contain transition-transform duration-300 hover:scale-105"
           loading="lazy"
