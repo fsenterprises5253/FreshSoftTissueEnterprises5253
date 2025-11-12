@@ -16,7 +16,7 @@ const Login = () => {
     setLoading(true);
 
     try {
-      const response = await fetch("https://shop-server-ulhl.onrender.com/api/login", {
+      const response = await fetch("https://freshsofttissue-server.onrender.com/api/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId, password }),
