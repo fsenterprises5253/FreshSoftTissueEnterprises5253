@@ -16,7 +16,9 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed = false }) => {
     navigate("/login");
   };
 
-  const isActive = (path: string) => location.pathname === path;
+  const isActive = (path: string) => {
+  return location.pathname === path || location.pathname.startsWith(path + "/");
+};
 
   return (
     <aside
