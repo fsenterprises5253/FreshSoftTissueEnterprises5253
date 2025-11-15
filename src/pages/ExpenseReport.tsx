@@ -298,11 +298,6 @@ const ExpenseReport = () => {
           </TableBody>
         </Table>
       </div>
-
-      {/* Total */}
-      <div className="text-right text-lg font-semibold mt-4">
-        Total: ₹{totalAmount.toFixed(2)}
-      </div>
     </div>
   );
 };
