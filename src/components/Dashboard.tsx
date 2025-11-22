@@ -1,76 +1,61 @@
+import { useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { AlertTriangle } from "lucide-react";
+
 import PartsTable from "./PartsTable";
 import AddPartDialog from "./AddPartDialog";
-import { AlertTriangle } from "lucide-react";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import { useNavigate } from "react-router-dom"; // ✅ Added navigation
 
-interface SparePart {
-  id: string;
-  gsm_number: string;
-  category: string;
-  manufacturer: string | null;
-  price: number;
-  cost_price: number | null;
-  stock_quantity: number;
-  minimum_stock: number;
-  unit: string;
-  location: string | null;
-}
+import { SparePart } from "@/types/SparePart";
+import { getStock } from "@/api/stock";
 
 const Dashboard = () => {
-  const [parts, setParts] = useState<SparePart[]>([]);
+  const navigate = useNavigate();
+
+  const [stock, setStock] = useState<SparePart[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const navigate = useNavigate(); // ✅ Navigation hook
-
-  // Fetch all parts
-  const fetchParts = async () => {
-    setLoading(true);
-    const { data, error } = await supabase.from("spare_parts").select("*");
-
-    if (error) {
-      console.error("Error fetching Stock Data:", error);
-    } else {
-      setParts(data || []);
+  /* --------------------------------------------------------
+     FETCH STOCK FROM MYSQL
+  -------------------------------------------------------- */
+  const loadStock = async () => {
+    try {
+      setLoading(true);
+      const data = await getStock();
+      setStock(data);
+    } catch (err) {
+      console.error("Error fetching stock:", err);
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   };
 
   useEffect(() => {
-    fetchParts();
+    loadStock();
   }, []);
-  
 
-  // --------------------------
-  // 📌 Updated Calculations
-  // --------------------------
+  /* --------------------------------------------------------
+     CALCULATIONS
+  -------------------------------------------------------- */
 
-  const totalParts = parts.length;
+  const totalParts = stock.length;
 
-  const inventoryValue = parts.reduce(
-    (sum, p) => sum + (p.cost_price || 0) * p.stock_quantity,
+  const inventoryValue = stock.reduce(
+    (sum, p) => sum + Number(p.cost_price || 0) * Number(p.stock || 0),
     0
   );
 
-  // ✅ Correct Profit Formula
-  const totalProfit = parts.reduce((sum, p) => {
-    const cost = p.cost_price || 0;
-    const sell = p.price || 0;
-    const profitPerItem = sell - cost;
-    return sum + profitPerItem * p.stock_quantity;
+  const totalProfit = stock.reduce((sum, p) => {
+    const cost = Number(p.cost_price);
+    const sell = Number(p.selling_price);
+    return sum + (sell - cost) * Number(p.stock);
   }, 0);
 
-  const lowStockParts = parts.filter((p) => p.stock_quantity < p.minimum_stock);
+  const lowStockParts = stock.filter(
+    (p) => Number(p.stock) < (p.minimum_stock ?? 10)
+  );
+
   const lowStockCount = lowStockParts.length;
 
   return (
@@ -78,19 +63,22 @@ const Dashboard = () => {
       {/* Header */}
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold tracking-tight">Stock Inventory</h1>
-        <AddPartDialog onPartAdded={fetchParts} />
+
+        {/* Add Stock */}
+        <AddPartDialog onPartAdded={loadStock} />
       </div>
 
-      {/* Stats Cards */}
+      {/* Cards Section */}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6">
-        {/* Total Stock */}
+
+        {/* Total Items */}
         <Card>
           <CardHeader>
-            <CardTitle>Total Stock</CardTitle>
+            <CardTitle>Total Stock Items</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-2xl font-bold">{totalParts}</p>
-            <p className="text-muted-foreground">Current stock count</p>
+            <p className="text-muted-foreground">Items in inventory</p>
           </CardContent>
         </Card>
 
@@ -101,16 +89,16 @@ const Dashboard = () => {
           </CardHeader>
           <CardContent>
             <p className="text-2xl font-bold">₹{inventoryValue.toFixed(2)}</p>
-            <p className="text-muted-foreground">Total stock value</p>
+            <p className="text-muted-foreground">Total value</p>
           </CardContent>
         </Card>
 
-        {/* 🔥 Profit (Clickable) */}
+        {/* Profit */}
         <div
-          className="cursor-pointer hover:shadow-lg transition rounded-lg"
-          onClick={() => navigate("/profit")} // ✅ Navigate to profit page
+          className="cursor-pointer"
+          onClick={() => navigate("/profit")}
         >
-          <Card className="border border-transparent hover:border-green-500 transition">
+          <Card className="hover:shadow-lg transition rounded-lg border hover:border-green-500">
             <CardHeader>
               <CardTitle>Profit</CardTitle>
             </CardHeader>
@@ -118,89 +106,52 @@ const Dashboard = () => {
               <p className="text-2xl font-bold text-green-600">
                 ₹{totalProfit.toFixed(2)}
               </p>
-              <p className="text-muted-foreground">Total profit</p>
+              <p className="text-muted-foreground">Estimated total profit</p>
             </CardContent>
           </Card>
         </div>
 
         {/* Low Stock Alert */}
-        <Dialog>
-          <DialogTrigger asChild>
-            <Card className="cursor-pointer hover:shadow-md transition">
-              <CardHeader className="flex items-center space-x-2">
-                <AlertTriangle className="text-yellow-500 w-5 h-5" />
-                <CardTitle>Low Stock Alert</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-2xl font-bold">{lowStockCount}</p>
-                <p className="text-muted-foreground">Items need reorder</p>
-              </CardContent>
-            </Card>
-          </DialogTrigger>
-
-          <DialogContent className="max-w-2xl">
-            <DialogHeader>
-              <DialogTitle>Low Stock Items</DialogTitle>
-            </DialogHeader>
-
-            {loading ? (
-              <p className="text-center py-6 text-gray-600">Loading...</p>
-            ) : lowStockParts.length === 0 ? (
-              <p className="text-center py-6 text-gray-500">
-                All items are sufficiently stocked.
-              </p>
-            ) : (
-              <table className="w-full text-left border-t border-gray-200">
-                <thead>
-                  <tr className="text-gray-700 font-medium">
-                    <th className="py-2 px-3">GSM Number</th>
-                    <th className="py-2 px-3">Category</th>
-                    <th className="py-2 px-3 text-center">Stock</th>
-                    <th className="py-2 px-3 text-center">Min Stock</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {lowStockParts.map((part) => (
-                    <tr
-                      key={part.id}
-                      className={`border-t border-gray-100 hover:bg-gray-50 ${
-                        part.stock_quantity <= part.minimum_stock / 2
-                          ? "bg-red-50"
-                          : ""
-                      }`}
-                    >
-                      <td className="py-2 px-3 font-medium">
-                        {part.gsm_number}
-                      </td>
-                      <td className="py-2 px-3">{part.category}</td>
-                      <td className="py-2 px-3 text-center">
-                        {part.stock_quantity}
-                      </td>
-                      <td className="py-2 px-3 text-center">
-                        {part.minimum_stock}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </DialogContent>
-        </Dialog>
+        <Card className="cursor-pointer hover:shadow-lg transition rounded-lg">
+          <CardHeader className="flex items-center space-x-2">
+            <AlertTriangle className="text-yellow-500 w-5 h-5" />
+            <CardTitle>Low Stock</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold">{lowStockCount}</p>
+            <p className="text-muted-foreground">Items below threshold</p>
+          </CardContent>
+        </Card>
       </div>
 
-      {/* Parts Table */}
-      {!loading && (
-        <div>
-          <h2 className="text-xl font-semibold mt-8 mb-4">All Stock Data</h2>
-          <PartsTable parts={parts} onUpdate={fetchParts} />
+      {/* Low Stock List */}
+      {lowStockCount > 0 && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-5">
+          <h2 className="text-lg font-semibold mb-3">
+            Items That Need Reordering
+          </h2>
+          <ul className="list-disc pl-5 text-gray-700">
+            {lowStockParts.map((p) => (
+              <li key={p.id}>
+                {p.category} — GSM {p.gsm_number}  
+                (Stock: {p.stock}, Min: {p.minimum_stock ?? 10})
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 
-      {loading && (
-        <p className="text-center text-muted-foreground mt-4">
-          Loading data...
-        </p>
-      )}
+      {/* Stock Table */}
+      <div>
+        <h2 className="text-xl font-semibold mt-8 mb-4">All Stock Data</h2>
+        {loading ? (
+          <p className="text-center text-muted-foreground py-4">
+            Loading stock...
+          </p>
+        ) : (
+          <PartsTable parts={stock} onUpdate={loadStock} />
+        )}
+      </div>
     </div>
   );
 };

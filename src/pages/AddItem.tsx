@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
@@ -23,20 +22,11 @@ const AddItem = () => {
 
   const navigate = useNavigate();
 
-  // Fetch all parts from Supabase
+  // Load parts from LocalStorage instead of Supabase
   useEffect(() => {
-    fetchParts();
+    const storedParts = JSON.parse(localStorage.getItem("local_parts") || "[]");
+    setParts(storedParts);
   }, []);
-
-  const fetchParts = async () => {
-    const { data, error } = await supabase
-      .from("spare_parts")
-      .select("id, gsm_number, price, stock_quantity, unit");
-    if (error) {
-      console.error(error);
-      toast.error("Error loading parts");
-    } else setParts(data || []);
-  };
 
   const handleSave = () => {
     if (!selectedPart) {
@@ -59,8 +49,10 @@ const AddItem = () => {
       total: Number(customPrice) * quantity,
     };
 
-    // Save the item in sessionStorage for the Billing page
-    const existing = JSON.parse(sessionStorage.getItem("newBillItems") || "[]");
+    // Save the item to sessionStorage — the Billing page will read this
+    const existing =
+      JSON.parse(sessionStorage.getItem("newBillItems") || "[]") || [];
+
     existing.push(newItem);
     sessionStorage.setItem("newBillItems", JSON.stringify(existing));
 
@@ -81,7 +73,7 @@ const AddItem = () => {
         </Button>
       </div>
 
-      {/* Search + Dropdown */}
+      {/* Search Input */}
       <div className="relative">
         <Input
           placeholder="Search by GSM Number..."
@@ -93,6 +85,7 @@ const AddItem = () => {
           className="w-full"
         />
 
+        {/* Search Dropdown */}
         {search.length > 0 && (
           <div className="absolute z-50 bg-white border rounded-md shadow-md mt-1 w-full max-h-56 overflow-auto">
             {parts
@@ -119,7 +112,7 @@ const AddItem = () => {
         )}
       </div>
 
-      {/* Selected Part Details */}
+      {/* Selected Part */}
       {selectedPart && (
         <div className="p-4 border rounded-md bg-card shadow-sm">
           <p className="font-semibold text-lg">{selectedPart.gsm_number}</p>
@@ -132,6 +125,7 @@ const AddItem = () => {
               onChange={(e) => setCustomPrice(Number(e.target.value))}
               className="w-40"
             />
+
             <Input
               type="number"
               placeholder="Quantity"
@@ -144,7 +138,7 @@ const AddItem = () => {
         </div>
       )}
 
-      {/* Action Buttons */}
+      {/* Save Button */}
       <div className="flex justify-end gap-4 pt-4 border-t">
         <Button
           onClick={handleSave}

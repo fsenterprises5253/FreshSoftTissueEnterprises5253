@@ -1,8 +1,7 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -11,8 +10,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Plus } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+
+import { createStock } from "@/api/stock";
 
 interface AddPartDialogProps {
   onPartAdded: () => void;
@@ -21,107 +21,97 @@ interface AddPartDialogProps {
 const AddPartDialog = ({ onPartAdded }: AddPartDialogProps) => {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+
   const [formData, setFormData] = useState({
     gsm_number: "",
     category: "",
+    description: "",
     manufacturer: "",
-    price: "",
+    stock: "",
+    minimum_stock: "", 
     cost_price: "",
-    stock_quantity: "",
-    minimum_stock: "",
-    unit: "piece",
-    location: "",
+    selling_price: "",
+    kg: "",
+    amount: "",
+    unit: "Packet",
   });
-  const [kg, setKg] = useState("");
-  const [amount, setAmount] = useState("");
+
+  // Auto-calc cost price when KG + amount provided
+  useEffect(() => {
+    const kg = parseFloat(formData.kg);
+    const amount = parseFloat(formData.amount);
+    if (kg && amount) {
+      const cost = (amount / (kg * 1000)) * 100;
+      setFormData((prev) => ({ ...prev, cost_price: cost.toFixed(2) }));
+    }
+  }, [formData.kg, formData.amount]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
 
     try {
-      const { error } = await supabase.from("spare_parts").insert([
-        {
-          gsm_number: formData.gsm_number.trim(),
-          category: formData.category.trim(),
-          manufacturer: formData.manufacturer || null,
-          price: parseFloat(formData.price),
-          cost_price: formData.cost_price ? parseFloat(formData.cost_price) : null,
-          stock_quantity: parseInt(formData.stock_quantity),
-          minimum_stock: formData.minimum_stock
-            ? parseInt(formData.minimum_stock)
-            : 0,
-          unit: formData.unit,
-          location: formData.location || null,
-        },
-      ]);
+      const newStock = {
+        gsm_number: Number(formData.gsm_number),
+        category: formData.category.trim(),
+        description: formData.description?.trim() || "",
+        manufacturer: formData.manufacturer?.trim() || null,
+        stock: Number(formData.stock),
+        minimum_stock: Number(formData.minimum_stock),
+        cost_price: Number(formData.cost_price),
+        selling_price: Number(formData.selling_price),
+        kg: formData.kg ? Number(formData.kg) : null,
+        amount: formData.amount ? Number(formData.amount) : null, // REQUIRED by SparePart type
+        unit: formData.unit || "Packet",
+      };
 
-      if (error) throw error;
+      await createStock(newStock);
 
-      toast.success("✅ Spare part added successfully!");
+      toast.success("Stock added!");
       setOpen(false);
+
+      // reset
       setFormData({
         gsm_number: "",
         category: "",
+        description: "",
         manufacturer: "",
-        price: "",
+        stock: "",
+        minimum_stock: "", 
         cost_price: "",
-        stock_quantity: "",
-        minimum_stock: "",
-        unit: "piece",
-        location: "",
+        selling_price: "",
+        kg: "",
+        amount: "",
+        unit: "Packet",
       });
+
       onPartAdded();
-    } catch (error: any) {
-      toast.error(error.message || "Failed to add spare part");
+    } catch (error) {
+      toast.error("Failed to add stock");
+      console.error("CREATE STOCK ERROR:", error);
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => {
-    const weight = parseFloat(kg);
-    const totalAmount = parseFloat(amount);
-
-    if (!weight || !totalAmount) {
-      setFormData((prev) => ({ ...prev, cost_price: "" }));
-      return;
-    }
-
-    const totalGrams = weight * 1000;
-    const pricePerGram = totalAmount / totalGrams;
-    const costFor100g = pricePerGram * 100;
-
-    setFormData((prev) => ({
-      ...prev,
-      cost_price: costFor100g.toFixed(2),
-    }));
-  }, [kg, amount]);
-
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button className="bg-gradient-to-r from-primary to-accent hover:opacity-90 transition-opacity">
-          <Plus className="mr-2 h-4 w-4" />
-          Add New Stock
+        <Button>
+          <Plus className="mr-2 h-4 w-4" /> Add New Stock
         </Button>
       </DialogTrigger>
 
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Add New Stock Details</DialogTitle>
-          <DialogDescription>
-            Enter the details of New Stock.
-          </DialogDescription>
+          <DialogTitle>Add Stock Item</DialogTitle>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* GSM Number and Category */}
           <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="gsm_number">GSM Number *</Label>
+            <div>
+              <Label>GSM Number *</Label>
               <Input
-                id="gsm_number"
                 required
                 value={formData.gsm_number}
                 onChange={(e) =>
@@ -129,33 +119,43 @@ const AddPartDialog = ({ onPartAdded }: AddPartDialogProps) => {
                 }
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="category">Category *</Label>
-              <Input
-                id="category"
-                required
+
+            <div>
+              <Label>Category *</Label>
+              <select
+                className="border rounded-md p-2 w-full"
                 value={formData.category}
                 onChange={(e) =>
                   setFormData({ ...formData, category: e.target.value })
                 }
-                placeholder="Please enter a category"
-              />
+                required
+              >
+                <option value="">Select Category</option>
+                <option value="Soft">Soft</option>
+                <option value="Hard">Hard</option>
+              </select>
             </div>
           </div>
 
-          {/* NEW: Description */}
-          <div className="space-y-2">
-            <label htmlFor="description">Description</label>
-            <textarea
-              className="border rounded-md p-2 w-full h-12 resize-none"
-            />
-          </div> 
+          <div>
+            <Label>Description</Label>
+            <select
+              className="border rounded-md p-2 w-full"
+              value={formData.description}
+              onChange={(e) =>
+                setFormData({ ...formData, description: e.target.value })
+              }
+              required
+            >
+              <option value="">Select Description</option>
+              <option value="Light Green Packet">Light Green Packet</option>
+              <option value="Dark Green Packet">Dark Green Packet</option>
+            </select>
+          </div>
 
-          {/* Manufacturer */}
-          <div className="space-y-2">
-            <Label htmlFor="manufacturer">Manufacturer</Label>
+          <div>
+            <Label>Manufacturer</Label>
             <Input
-              id="manufacturer"
               value={formData.manufacturer}
               onChange={(e) =>
                 setFormData({ ...formData, manufacturer: e.target.value })
@@ -163,27 +163,26 @@ const AddPartDialog = ({ onPartAdded }: AddPartDialogProps) => {
             />
           </div>
 
-          {/* Pricing */}
           <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="price">Selling Price *</Label>
+            <div>
+              <Label>Selling Price (₹) *</Label>
               <Input
-                id="price"
                 type="number"
                 step="0.01"
                 required
-                value={formData.price}
+                value={formData.selling_price}
                 onChange={(e) =>
-                  setFormData({ ...formData, price: e.target.value })
+                  setFormData({ ...formData, selling_price: e.target.value })
                 }
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="cost_price">Cost Price</Label>
+
+            <div>
+              <Label>Cost Price (₹) *</Label>
               <Input
-                id="cost_price"
                 type="number"
                 step="0.01"
+                required
                 value={formData.cost_price}
                 onChange={(e) =>
                   setFormData({ ...formData, cost_price: e.target.value })
@@ -192,75 +191,70 @@ const AddPartDialog = ({ onPartAdded }: AddPartDialogProps) => {
             </div>
           </div>
 
-          {/* Stock */}
           <div className="grid grid-cols-3 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="stock_quantity">Stock Quantity *</Label>
+            <div>
+              <Label>Stock *</Label>
               <Input
-                id="stock_quantity"
                 type="number"
                 required
-                value={formData.stock_quantity}
+                value={formData.stock}
                 onChange={(e) =>
-                  setFormData({ ...formData, stock_quantity: e.target.value })
+                  setFormData({ ...formData, stock: e.target.value })
                 }
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="minimum_stock">Min. Stock</Label>
+
+            <div>
+              <Label>Minimum Stock *</Label>
               <Input
-                id="minimum_stock"
                 type="number"
+                required
                 value={formData.minimum_stock}
                 onChange={(e) =>
                   setFormData({ ...formData, minimum_stock: e.target.value })
                 }
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="unit">Unit</Label>
+
+            <div>
+              <Label>Unit *</Label>
               <Input
-                id="unit"
+                required
                 value={formData.unit}
                 onChange={(e) =>
                   setFormData({ ...formData, unit: e.target.value })
                 }
               />
             </div>
-          </div>
+          </div>  
 
-          {/* Kg + Amount */}
           <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <label htmlFor="kg">Kg</label>
-              <input
+            <div>
+              <Label>KG</Label>
+              <Input
                 type="number"
-                value={kg}
-                onChange={(e) => setKg(e.target.value)}
-                className="border rounded-md p-2 w-full"
+                value={formData.kg}
+                onChange={(e) =>
+                  setFormData({ ...formData, kg: e.target.value })
+                }
               />
             </div>
 
-            <div className="space-y-2">
-              <label htmlFor="amount">Amount</label>
-              <input
+            <div>
+              <Label>Amount</Label>
+              <Input
                 type="number"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                className="border rounded-md p-2 w-full"
+                value={formData.amount}
+                onChange={(e) =>
+                  setFormData({ ...formData, amount: e.target.value })
+                }
               />
             </div>
-          </div>            
-
-          {/* Buttons */}
-          <div className="flex justify-end gap-3 pt-4">
-            <Button type="button" variant="outline" onClick={() => setOpen(false)}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={loading}>
-              {loading ? "Adding..." : "Add Stock"}
-            </Button>
           </div>
+
+          <Button type="submit" disabled={loading}>
+            {loading ? "Adding..." : "Add Stock"}
+          </Button>
         </form>
       </DialogContent>
     </Dialog>

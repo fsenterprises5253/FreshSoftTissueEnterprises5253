@@ -1,3 +1,5 @@
+// src/components/PartsTable.tsx
+
 import React, { useState, useEffect } from "react";
 import {
   Table,
@@ -10,79 +12,59 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Pencil, Trash2, Search } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+
 import EditPartDialog from "./EditPartDialog";
 
-interface SparePart {
-  id: string;
-  gsm_number: string;
-  category: string;
-  manufacturer: string | null;
-  price: number;
-  cost_price: number | null;
-  stock_quantity: number;
-  minimum_stock: number;
-  unit: string;
-  location: string | null;
-}
+import { deleteStock } from "@/api/stock";
+import { SparePart } from "@/types/SparePart";
 
 interface PartsTableProps {
   parts: SparePart[];
-  onUpdate: () => void;
+  onUpdate: () => void; // refresh Dashboard parent
 }
 
-const PartsTable = ({ parts, onUpdate }: PartsTableProps) => {
+export default function PartsTable({ parts, onUpdate }: PartsTableProps) {
   const [searchTerm, setSearchTerm] = useState("");
+  const [localParts, setLocalParts] = useState<SparePart[]>(parts);
   const [editingPart, setEditingPart] = useState<SparePart | null>(null);
-  const [localParts, setLocalParts] = useState(parts);
 
-  // Sync local state with props
-  React.useEffect(() => {
+  // Sync local table any time parent updates
+  useEffect(() => {
     setLocalParts(parts);
   }, [parts]);
 
-  const filteredParts = localParts.filter(
-    (part) =>
-      part.gsm_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      part.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (part.manufacturer?.toLowerCase() || "").includes(searchTerm.toLowerCase())
-  );
+  // 🔍 Search filter
+  const filteredParts = localParts.filter((part) => {
+    const s = searchTerm.toLowerCase();
+    return (
+      part.gsm_number.toString().includes(s) ||
+      part.category.toLowerCase().includes(s) ||
+      (part.manufacturer?.toLowerCase() || "").includes(s)
+    );
+  });
 
-  // ✅ Delete with optimistic UI and Undo support
-  const handleDelete = async (id: string) => {
-  if (!confirm("Are you sure you want to delete this part?")) return;
+  /* ---------------------------------------------
+     DELETE FROM MYSQL
+  --------------------------------------------- */
+  const handleDelete = async (id: number) => {
+    if (!confirm("Are you sure you want to delete this stock item?")) return;
 
-  console.log("🧩 Deleting ID:", id);
+    try {
+      await deleteStock(id);
 
-  try {
-    const { data, error } = await supabase
-      .from("spare_parts")
-      .delete()
-      .eq("id", id)
-      .select();
+      toast.success("🗑️ Stock item deleted");
 
-    if (error) {
-      console.error("❌ Supabase delete error:", error);
-      toast.error("Failed to delete from Supabase");
-      return;
+      onUpdate(); // refresh MySQL stock from parent
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to delete item");
     }
-
-    console.log("✅ Deleted rows:", data);
-
-    // Remove from UI
-    setLocalParts((prev) => prev.filter((p) => p.id !== id));
-    toast.success("✅ Part deleted successfully!");
-    onUpdate();
-  } catch (err: any) {
-    console.error("Unexpected delete error:", err);
-    toast.error("Unexpected delete error");
-  }
-};
+  };
 
   return (
     <div className="space-y-4">
-      {/* 🔍 Search Bar */}
+      {/* Search bar */}
       <div className="relative max-w-md">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input
@@ -93,18 +75,19 @@ const PartsTable = ({ parts, onUpdate }: PartsTableProps) => {
         />
       </div>
 
-      {/* 📦 Table */}
-      <div className="rounded-lg border border-border bg-card shadow-sm overflow-hidden">
+      <div className="rounded-lg border bg-card shadow-sm overflow-hidden">
         <Table>
           <TableHeader>
-            <TableRow className="bg-muted/50 hover:bg-muted/50">
-              <TableHead>GSM Number</TableHead>
+            <TableRow className="bg-muted/50">
+              <TableHead>GSM</TableHead>
               <TableHead>Category</TableHead>
+              <TableHead>Description</TableHead>
               <TableHead>Manufacturer</TableHead>
               <TableHead>Stock</TableHead>
               <TableHead>Cost Price</TableHead>
               <TableHead>Selling Price</TableHead>
-              <TableHead>Location</TableHead>
+              <TableHead>Kg</TableHead>
+              <TableHead>Amount</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -113,75 +96,47 @@ const PartsTable = ({ parts, onUpdate }: PartsTableProps) => {
             {filteredParts.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={8}
+                  colSpan={10}
                   className="text-center py-8 text-muted-foreground"
                 >
-                  No parts found
+                  No stock items found
                 </TableCell>
               </TableRow>
             ) : (
               filteredParts.map((part) => (
-                <TableRow
-                  key={part.id}
-                  className="hover:bg-muted/30 transition-colors"
-                >
-                  {/* GSM Number */}
-                  <TableCell className="font-mono font-medium">
+                <TableRow key={part.id} className="hover:bg-muted/30">
+                  <TableCell className="font-medium">
                     {part.gsm_number}
                   </TableCell>
 
-                  {/* Category */}
-                  <TableCell>
-                    <span className="inline-flex items-center rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">
-                      {part.category}
-                    </span>
-                  </TableCell>
+                  <TableCell>{part.category}</TableCell>
 
-                  {/* Manufacturer */}
-                  <TableCell className="text-muted-foreground">
-                    {part.manufacturer || "-"}
-                  </TableCell>
+                  <TableCell>{part.description || "-"}</TableCell>
 
-                  {/* Stock Column */}
-                  <TableCell>
-                    <span
-                      className={`font-medium ${
-                        part.stock_quantity <= part.minimum_stock
-                          ? "text-destructive"
-                          : "text-foreground"
-                      }`}
-                    >
-                      {part.stock_quantity} {part.unit}
-                    </span>
-                  </TableCell>
+                  <TableCell>{part.manufacturer || "-"}</TableCell>
 
-                  {/* Cost Price */}
-                  <TableCell className="font-semibold text-center">
-                    ₹{(part.cost_price || 0).toFixed(2)}
-                  </TableCell>
+                  <TableCell>{part.stock}</TableCell>
 
-                  {/* Selling Price */}
-                  <TableCell className="font-semibold text-center">
-                    ₹{part.price.toFixed(2)}
-                  </TableCell>
+                  <TableCell>₹{part.cost_price}</TableCell>
 
-                  {/* Location */}
-                  <TableCell className="text-muted-foreground">
-                    {part.location || "-"}
-                  </TableCell>
+                  <TableCell>₹{part.selling_price}</TableCell>
 
-                  {/* Actions */}
+                  <TableCell>{part.kg || "-"}</TableCell>
+
+                  <TableCell>{part.amount || "-"}</TableCell>
+
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
+                      {/* EDIT */}
                       <Button
                         variant="ghost"
                         size="icon"
                         onClick={() => setEditingPart(part)}
-                        className="hover:bg-primary/10 hover:text-primary"
                       >
                         <Pencil className="h-4 w-4" />
                       </Button>
 
+                      {/* DELETE */}
                       <Button
                         variant="ghost"
                         size="icon"
@@ -199,7 +154,7 @@ const PartsTable = ({ parts, onUpdate }: PartsTableProps) => {
         </Table>
       </div>
 
-      {/* ✏️ Edit Dialog */}
+      {/* EDIT MODAL */}
       {editingPart && (
         <EditPartDialog
           part={editingPart}
@@ -210,6 +165,4 @@ const PartsTable = ({ parts, onUpdate }: PartsTableProps) => {
       )}
     </div>
   );
-};
-
-export default PartsTable;
+}

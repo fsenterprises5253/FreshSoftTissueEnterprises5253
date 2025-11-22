@@ -1,305 +1,170 @@
 import { useEffect, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Plus, Trash2, Pencil, Save, X } from "lucide-react";
-import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import axios from "axios";
+import { Pencil, Save, Trash, X } from "lucide-react";
 
-interface ExpenseItem {
-  id: string;
+export interface Expense {
+  id?: number;
   item: string;
   qty: number;
   amount: number;
 }
 
-const ExpenseReport = () => {
-  const [expenses, setExpenses] = useState<ExpenseItem[]>([]);
-  const [newItem, setNewItem] = useState("");
-  const [newQty, setNewQty] = useState<number>(1);
-  const [newAmount, setNewAmount] = useState<number | "">("");
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editItem, setEditItem] = useState("");
-  const [editQty, setEditQty] = useState<number>(0);
-  const [editAmount, setEditAmount] = useState<number>(0);
+const API_URL = "http://localhost:5000/api/expenses";
 
-  // ✅ Fetch existing expenses
+export default function ExpenseReport() {
+  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [editingRowId, setEditingRowId] = useState<number | null>(null);
+  const [rowEditData, setRowEditData] = useState<Expense>({ item: "", qty: 1, amount: 0 });
+
+  const [expense, setExpense] = useState<Expense>({ item: "", qty: 1, amount: 0 });
+  const [loading, setLoading] = useState(false);
+
   useEffect(() => {
-    fetchExpenses();
+    loadExpenses();
   }, []);
 
-  const fetchExpenses = async () => {
-    const { data, error } = await (supabase as any)
-      .from("expenses")
-      .select("*")
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      toast.error("Failed to fetch expenses");
-      console.error(error);
-    } else {
-      setExpenses(data || []);
-    }
+  const loadExpenses = async () => {
+    const res = await axios.get<Expense[]>(API_URL);
+    setExpenses(res.data);
   };
 
-  // ✅ Add expense
+  const handleAddChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setExpense(prev => ({ ...prev, [name]: Number.isNaN(Number(value)) ? value : Number(value) }));
+  };
+
   const addExpense = async () => {
-  if (!newItem || !newAmount) {
-    toast.error("Please fill all fields before adding.");
-    return;
-  }
-
-  const { data, error } = await supabase
-    .from("expenses")
-    .insert([
-      {
-        item: newItem,
-        qty: newQty,
-        amount: Number(newAmount),
-      },
-    ])
-    .select();
-
-  if (error) {
-    console.error("❌ Supabase Insert Error:", error);
-    toast.error("Failed to add expense");
-    return;
-  }
-
-  setExpenses((prev) => [data[0], ...prev]);
-  setNewItem("");
-  setNewQty(1);
-  setNewAmount("");
-  toast.success("✅ Expense added successfully!");
-};
-
-  // ✅ Delete expense
-  const deleteExpense = async (id: string) => {
-    const { error } = await (supabase as any).from("expenses").delete().eq("id", id);
-
-    if (error) {
-      toast.error("Failed to delete expense");
-      console.error(error);
-      return;
-    }
-
-    setExpenses((prev) => prev.filter((e) => e.id !== id));
-    toast.success("Expense deleted.");
+    if (!expense.item || !expense.amount) return;
+    const res = await axios.post<Expense>(API_URL, expense);
+    setExpenses(prev => [res.data, ...prev]);
+    setExpense({ item: "", qty: 1, amount: 0 });
   };
 
-  // ✅ Start editing
-  const startEditing = (expense: ExpenseItem) => {
-    setEditingId(expense.id);
-    setEditItem(expense.item);
-    setEditQty(expense.qty);
-    setEditAmount(expense.amount);
+  // ---------- INLINE EDIT LOGIC ----------
+  const startEditRow = (exp: Expense) => {
+    setEditingRowId(exp.id!);
+    setRowEditData({ ...exp });
   };
 
-  const cancelEditing = () => {
-    setEditingId(null);
-    setEditItem("");
-    setEditQty(0);
-    setEditAmount(0);
+  const handleRowChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setRowEditData(prev => ({
+      ...prev,
+      [name]: name === "qty" || name === "amount" ? Number(value) : value
+    }));
   };
 
-  // ✅ Save edited expense
-  const saveEdit = async () => {
-    if (!editItem || !editAmount) {
-      toast.error("All fields are required.");
-      return;
-    }
-
-    const { error } = await (supabase as any)
-      .from("expenses")
-      .update({
-        item: editItem,
-        qty: editQty,
-        amount: editAmount,
-      })
-      .eq("id", editingId);
-
-    if (error) {
-      toast.error("Failed to update expense");
-      console.error(error);
-      return;
-    }
-
-    toast.success("Expense updated successfully!");
-    setEditingId(null);
-    fetchExpenses();
+  const saveRowUpdate = async (id: number) => {
+    await axios.put(`${API_URL}/${id}`, rowEditData);
+    await loadExpenses();
+    setEditingRowId(null);
   };
 
-  const totalAmount = expenses.reduce(
-    (sum, e) => sum + e.amount * e.qty,
-    0
-  );
+  const cancelRowEdit = () => {
+    setEditingRowId(null);
+  };
+
+  const deleteRow = async (id?: number) => {
+    if (!id) return;
+    if (!window.confirm("Delete this expense?")) return;
+    await axios.delete(`${API_URL}/${id}`);
+    setExpenses(prev => prev.filter(e => e.id !== id));
+  };
 
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-6">
-      <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          📊 Expense Report
-        </h1>
+      <h1 className="text-2xl font-bold flex items-center gap-2">📊 Expense Report</h1>
+
+      {/* ADD FORM */}
+      <div className="bg-white rounded-2xl p-6 shadow border mb-8 flex gap-4 max-w-5xl mx-auto">
+        <input
+          name="item"
+          placeholder="Enter item name"
+          className="flex-1 border rounded-xl px-4 py-3"
+          value={expense.item}
+          onChange={handleAddChange}
+        />
+        <input
+          type="number"
+          name="qty"
+          className="w-32 border rounded-xl px-4 py-3"
+          value={expense.qty}
+          onChange={handleAddChange}
+        />
+        <input
+          type="number"
+          name="amount"
+          className="w-40 border rounded-xl px-4 py-3"
+          value={expense.amount}
+          onChange={handleAddChange}
+        />
+        <button onClick={addExpense} className="bg-blue-600 text-white px-6 py-3 rounded-xl">+ Add</button>
       </div>
 
-      {/* Add Expense */}
-      <div className="flex flex-wrap gap-3 items-end border p-4 rounded-lg bg-white shadow-sm">
-        <div className="flex-1 min-w-[200px]">
-          <label className="block text-sm font-medium mb-1">Item</label>
-          <Input
-            placeholder="Enter item name"
-            value={newItem}
-            onChange={(e) => setNewItem(e.target.value)}
-          />
-        </div>
-
-        <div className="w-32">
-          <label className="block text-sm font-medium mb-1">Qty</label>
-          <Input
-            type="number"
-            min={1}
-            value={newQty}
-            onChange={(e) => setNewQty(Number(e.target.value))}
-          />
-        </div>
-
-        <div className="w-40">
-          <label className="block text-sm font-medium mb-1">Amount</label>
-          <Input
-            type="number"
-            min={0}
-            value={newAmount}
-            onChange={(e) =>
-              setNewAmount(e.target.value ? Number(e.target.value) : "")
-            }
-          />
-        </div>
-
-        <Button
-          onClick={addExpense}
-          className="bg-blue-600 hover:bg-blue-700 text-white"
-        >
-          <Plus className="w-4 h-4 mr-1" /> Add
-        </Button>
-      </div>
-
-      {/* Expense Table */}
-      <div className="border rounded-lg bg-white shadow-sm overflow-hidden">
-        <Table>
-          <TableHeader>
-            <TableRow className="bg-muted/50">
-              <TableHead>Item</TableHead>
-              <TableHead className="text-right">Qty</TableHead>
-              <TableHead className="text-right">Amount</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-
-          <TableBody>
-            {expenses.length === 0 ? (
-              <TableRow>
-                <TableCell
-                  colSpan={4}
-                  className="text-center py-6 text-gray-500"
-                >
-                  No expenses added yet.
-                </TableCell>
-              </TableRow>
-            ) : (
-              expenses.map((expense) => (
-                <TableRow key={expense.id}>
-                  {editingId === expense.id ? (
-                    <>
-                      {/* Editable Row */}
-                      <TableCell>
-                        <Input
-                          value={editItem}
-                          onChange={(e) => setEditItem(e.target.value)}
-                        />
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Input
-                          type="number"
-                          min={1}
-                          value={editQty}
-                          onChange={(e) =>
-                            setEditQty(Number(e.target.value))
-                          }
-                          className="text-right"
-                        />
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Input
-                          type="number"
-                          min={0}
-                          value={editAmount}
-                          onChange={(e) =>
-                            setEditAmount(Number(e.target.value))
-                          }
-                          className="text-right"
-                        />
-                      </TableCell>
-                      <TableCell className="text-right flex justify-end gap-2">
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          onClick={saveEdit}
-                          className="text-green-600 hover:bg-green-100"
-                        >
-                          <Save className="w-4 h-4" />
-                        </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          onClick={cancelEditing}
-                          className="text-red-600 hover:bg-red-100"
-                        >
-                          <X className="w-4 h-4" />
-                        </Button>
-                      </TableCell>
-                    </>
-                  ) : (
-                    <>
-                      <TableCell>{expense.item}</TableCell>
-                      <TableCell className="text-right">{expense.qty}</TableCell>
-                      <TableCell className="text-right">
-                        ₹{expense.amount.toFixed(2)}
-                      </TableCell>
-                      <TableCell className="text-right flex justify-end gap-2">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => startEditing(expense)}
-                          className="hover:bg-blue-100 hover:text-blue-600"
-                        >
-                          <Pencil className="w-4 h-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => deleteExpense(expense.id)}
-                          className="hover:bg-red-100 hover:text-red-600"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </TableCell>
-                    </>
-                  )}
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
+      {/* TABLE */}
+      <div className="bg-white rounded-2xl shadow border overflow-hidden max-w-5xl mx-auto">
+        <table className="w-full">
+          <thead className="bg-gray-100">
+            <tr>
+              <th className="p-4 text-left font-normal text-gray-600">Item</th>
+              <th className="p-4 text-center font-normal text-gray-600">Qty</th>
+              <th className="p-4 text-center font-normal text-gray-600">Amount</th>
+              <th className="p-4 text-right font-normal text-gray-600">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {expenses.map(exp => (
+              <tr key={exp.id} className="border-t">
+                {editingRowId === exp.id ? (
+                  <>
+                    <td className="p-4"><input name="item" value={rowEditData.item} onChange={handleRowChange} className="border rounded-lg px-3 py-2 w-full" /></td>
+                    <td className="p-4  text-center"><input type="number" name="qty" value={rowEditData.qty} onChange={handleRowChange} className="border rounded-lg px-3 py-2 w-full" /></td>
+                    <td className="p-4  text-center"><input type="number" name="amount" value={rowEditData.amount} onChange={handleRowChange} className="border rounded-lg px-3 py-2 w-full" /></td>
+                    <td className="p-4 flex justify-end gap-4">
+                      <button
+                        onClick={() => saveRowUpdate(exp.id!)}
+                        className="p-2 rounded-lg text-gray-600 hover:bg-green-100 hover:text-green-600 transition-colors duration-200"
+                        title="Save"
+                      >
+                        <Save size={18} />
+                      </button>
+                      <button
+                        onClick={cancelRowEdit}
+                        className="p-2 rounded-lg text-gray-600 hover:bg-red-100 hover:text-red-600 transition-colors duration-200"
+                        title="Cancel"
+                      >
+                        <X size={18} />
+                      </button>
+                    </td>
+                  </>
+                ) : (
+                  <>
+                    <td className="p-4">{exp.item}</td>
+                    <td className="p-4 text-center">{exp.qty}</td>
+                    <td className="p-4 text-center">₹{Number(exp.amount).toFixed(2)}</td>
+                    <td className="p-4 flex justify-end gap-4">
+                      <button
+                        onClick={() => startEditRow(exp)}
+                        className="p-2 rounded-lg text-gray-600 hover:bg-blue-100 hover:text-blue-600 transition-colors duration-200"
+                        title="Edit"
+                      >
+                        <Pencil size={18} />
+                      </button>
+                      <button
+                        onClick={() => deleteRow(exp.id)}
+                        className="p-2 rounded-lg text-gray-600 hover:bg-red-100 hover:text-red-600 transition-colors duration-200"
+                        title="Delete"
+                      >
+                        <Trash size={18} />
+                      </button>
+                    </td>
+                  </>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );
-};
-
-export default ExpenseReport;
+}

@@ -1,0 +1,2 @@
+ALTER TABLE stock_items
+ADD COLUMN unit VARCHAR(20) DEFAULT 'piece';

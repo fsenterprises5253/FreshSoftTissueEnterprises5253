@@ -1,367 +1,242 @@
-import { useState, useEffect, useRef } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Plus, Save, X, Printer } from "lucide-react";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
+import { getStock } from "@/api/stock";
+import { printBillInvoice } from "@/lib/BillingPrint";
 
-interface SparePart {
-  id: string;
-  gsm_number: string;
-  price: number;
-  stock_quantity: number;
+// ================= TYPES =================
+interface StockItem {
+  id: number;
+  gsm_number: number;
+  description: string;
+  selling_price: number;
+  stock: number;
   unit: string;
 }
 
 interface BillItem {
-  id: string;
-  gsm_number: string;
+  gsm_number: number;
+  description: string;
   quantity: number;
   price: number;
   total: number;
 }
 
-const BillingForm = () => {
-  const [billNumber, setBillNumber] = useState("");
-  const [customerName, setCustomerName] = useState("");
-  const [billDate, setBillDate] = useState("");
-  const [parts, setParts] = useState<SparePart[]>([]);
-  const [selectedPart, setSelectedPart] = useState<SparePart | null>(null);
-  const [quantity, setQuantity] = useState<number>(1);
+// ================= COMPONENT =================
+export default function BillingForm() {
+  const navigate = useNavigate();
+
+  const [stockList, setStockList] = useState<StockItem[]>([]);
+  const [filteredDescriptions, setFilteredDescriptions] = useState<StockItem[]>([]);
+  const [selectedGSM, setSelectedGSM] = useState<string>("");
+  const [selectedDescription, setSelectedDescription] = useState<string>("");
+  const [selectedPart, setSelectedPart] = useState<StockItem | null>(null);
+
+  const [quantity, setQuantity] = useState(1);
   const [customPrice, setCustomPrice] = useState<number | "">("");
+
   const [billItems, setBillItems] = useState<BillItem[]>([]);
+  const [customerName, setCustomerName] = useState("");
+  const [billDate, setBillDate] = useState(new Date().toISOString().slice(0, 10));
   const [paymentMode, setPaymentMode] = useState("");
   const [status, setStatus] = useState("Pending");
-  const navigate = useNavigate();
-  const printRef = useRef<HTMLDivElement>(null);
 
+  const [savedBillNumber, setSavedBillNumber] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  // ============ LOAD STOCK ============
   useEffect(() => {
-    fetchParts();
-    generateNextBillNumber();
-    setBillDate(new Date().toLocaleString());
+    loadStock();
   }, []);
 
-  // ✅ Fetch spare parts
-  const fetchParts = async () => {
-    const { data, error } = await supabase.from("spare_parts").select("*");
-    if (error) toast.error("Failed to load parts");
-    else setParts(data || []);
-  };
+  async function loadStock() {
+    try {
+      const data = await getStock();
+      setStockList(data || []);
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to load stock");
+    }
+  }
 
-  // ✅ Generate sequential bill number (INV-0001, INV-0002, etc.)
-  const generateNextBillNumber = async () => {
-    const { data, error } = await supabase
-      .from("bills")
-      .select("bill_number")
-      .order("created_at", { ascending: false })
-      .limit(1);
+  // ============ ITEM SELECTION ============
+  function onGsmChange(val: string) {
+    setSelectedGSM(val);
+    setSelectedDescription("");
+    setSelectedPart(null);
+    setCustomPrice("");
 
-    if (error) {
-      console.error("Error fetching last bill:", error);
-      setBillNumber("INV-0001");
+    const filtered = stockList.filter(s => String(s.gsm_number) === val);
+    setFilteredDescriptions(filtered);
+  }
+
+  function onDescriptionChange(desc: string) {
+    setSelectedDescription(desc);
+    const part = filteredDescriptions.find(p => p.description === desc);
+
+    if (part) {
+      setSelectedPart(part);
+      setCustomPrice(part.selling_price);
+    } else {
+      setSelectedPart(null);
+    }
+  }
+
+  // ============ ADD ITEM ============
+  function addItem() {
+    if (!selectedPart) {
+      toast.error("Select GSM and Description");
       return;
     }
 
-    if (data && data.length > 0) {
-      const lastBill = data[0].bill_number;
-      const lastNumber = parseInt(lastBill.replace("INV-", ""), 10);
-      const nextNumber = (lastNumber + 1).toString().padStart(4, "0");
-      setBillNumber(`INV-${nextNumber}`);
-    } else {
-      setBillNumber("INV-0001");
-    }
-  };
+    const price = customPrice !== "" && Number(customPrice) > 0
+      ? Number(customPrice)
+      : selectedPart.selling_price;
 
-  // ✅ Add item to bill
-  const addItem = () => {
-    if (!selectedPart) return toast.error("Select a part first");
-
-    const price = customPrice && customPrice > 0 ? Number(customPrice) : selectedPart.price;
-    const newItem = {
-      id: selectedPart.id + "-" + Math.random(), // Ensure unique key
-      gsm_number: String(selectedPart.gsm_number),
+    const newItem: BillItem = {
+      gsm_number: selectedPart.gsm_number,
+      description: selectedPart.description,
       quantity,
       price,
-      total: price * quantity,
+      total: price * quantity
     };
 
-    setBillItems([...billItems, newItem]);
-    setSelectedPart(null);
+    setBillItems(prev => [...prev, newItem]);
+
     setQuantity(1);
     setCustomPrice("");
+    setSelectedGSM("");
+    setSelectedDescription("");
+    setSelectedPart(null);
+    setFilteredDescriptions([]);
+  }
+
+  const subtotal = billItems.reduce((sum, item) => sum + item.total, 0);
+
+  // ============ SAVE BILL (NEW UNIFIED TABLE) ============
+  async function saveBill() {
+  if (!customerName || !paymentMode || !status || !billDate) {
+    toast.error("Fill all bill details");
+    return;
+  }
+
+  if (billItems.length === 0) {
+    toast.error("Add at least one item");
+    return;
+  }
+
+  setSaving(true);
+
+  const payload = {
+    customer_name: customerName,
+    payment_mode: paymentMode,
+    status,
+    bill_date: billDate,
+    subtotal,
+    items: billItems.map(i => ({
+      gsm_number: Number(i.gsm_number),
+      description: i.description,
+      quantity: Number(i.quantity),
+      price: Number(i.price),
+      total: Number(i.total)
+    }))
   };
 
-  const subtotal = billItems.reduce((sum, i) => sum + i.total, 0);
-
-  // ✅ Save bill and items
-  const saveBill = async () => {
   try {
-    // Step 1: Save Bill
-    const { data: billData, error: billError } = await supabase
-      .from("bills")
-      .insert([
-        {
-          bill_number: billNumber,
-          customer_name: customerName || "N/A",
-          total_amount: subtotal,
-          payment_mode: paymentMode,
-          status: status,
-          created_at: billDate
-            ? new Date(billDate).toISOString()
-            : new Date().toISOString(),
-        },
-      ])
-      .select()
-      .single();
+    const res = await fetch("http://localhost:5000/api/billing", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
 
-    if (billError || !billData) throw billError;
+    const data = await res.json();
 
-    // Step 2: Save Bill Items (⚡ FIXED created_at added)
-    const itemsData = billItems.map((item) => ({
-      bill_id: billData.id,
-      gsm_number: String(item.gsm_number),
-      quantity: item.quantity,
-      price: item.price,
-      total: item.total,
-      created_at: billDate
-        ? new Date(billDate).toISOString()
-        : new Date().toISOString(),   // ✅ REQUIRED for Profit Dashboard
-    }));
-
-    const { error: itemsError } =
-      await supabase.from("bill_items").insert(itemsData);
-
-    if (itemsError) throw itemsError;
-
-    // Step 3: Deduct from Stock
-    for (const item of billItems) {
-      const { data: partData } = await supabase
-        .from("spare_parts")
-        .select("id, stock_quantity")
-        .eq("gsm_number", item.gsm_number)
-        .single();
-
-      if (!partData) continue;
-
-      const newStock = Math.max(partData.stock_quantity - item.quantity, 0);
-
-      await supabase
-        .from("spare_parts")
-        .update({ stock_quantity: newStock })
-        .eq("gsm_number", item.gsm_number);
-    }
-
-    toast.success("Bill saved & stock updated!");
-    navigate("/billing");
-  } catch (err: any) {
-    console.error(err);
-    toast.error(err.message || "Failed to save bill");
-  }
-};
-
-  // ✅ Print invoice
-  const handlePrint = () => {
-    if (billItems.length === 0) {
-      toast.error("No items to print");
+    if (!res.ok) {
+      toast.error(data?.error || "Failed to save bill");
       return;
     }
 
-    const printWindow = window.open("", "_blank");
-    if (!printWindow) return;
+    const billNumber = data.bill_number || `INV-${String(data.id).padStart(4, "0")}`;
+    setSavedBillNumber(billNumber);
 
-    const rows = billItems
-      .map(
-        (item, index) => `
-        <tr>
-          <td style="text-align:center;">${index + 1}</td>
-          <td style="text-align:center;">${item.gsm_number}</td>
-          <td style="text-align:center;">${item.quantity}</td>
-          <td style="text-align:right;">₹${item.price.toFixed(2)}</td>
-          <td style="text-align:right;">₹${item.total.toFixed(2)}</td>
-        </tr>`
-      )
-      .join("");
+    toast.success(`Bill saved successfully (${billNumber})`);
+    navigate("/billing");
 
-    printWindow.document.write(`
-      <html>
-        <head>
-          <title>Invoice - ${billNumber}</title>
-          <style>
-            @page { size: A4; margin: 10mm; }
-            body { font-family: Arial, sans-serif; font-size: 13px; color: #000; }
-            table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-            th, td { border: 1px solid #000; padding: 6px; }
-            th { background-color: #f0f0f0; }
-            .text-right { text-align: right; }
-          </style>
-        </head>
-        <body>
-          <div style="text-align:center;">
-            <h2>Fresh Soft Tissue Enterprises</h2>
-            <p>All Kind of Engine & Suspension Items</p>
-            <h3 style="display:inline-block; border:1px solid #000; padding:3px;">CREDIT INVOICE</h3>
-          </div>
+  } catch (err) {
+    console.error("SAVE BILL ERROR:", err);
+    toast.error("Server error while saving bill");
+  } finally {
+    setSaving(false);
+  }
+}
 
-          <p><strong>Invoice #:</strong> ${billNumber}</p>
-          <p><strong>Customer:</strong> ${customerName || "N/A"}</p>
-          <p><strong>Date:</strong> ${billDate}</p>
-
-          <table>
-            <thead>
-              <tr>
-                <th>S.No</th>
-                <th>GSM Number</th>
-                <th>Qty</th>
-                <th>Price</th>
-                <th>Total</th>
-              </tr>
-            </thead>
-            <tbody>${rows}</tbody>
-          </table>
-
-          <div style="text-align:right; margin-top:10px;">
-            <p><strong>Subtotal:</strong> ₹${subtotal.toFixed(2)}</p>
-            <p><strong>Net Amount:</strong> ₹${subtotal.toFixed(2)}</p>
-          </div>
-
-          <div style="margin-top:30px; display:flex; justify-content:space-between;">
-            <p>Receiver ___________________</p>
-            <p>Signature ___________________</p>
-          </div>
-
-          <p style="text-align:center; margin-top:20px;">Shuwaikh Industrial Area, Opp. Garage Noor</p>
-
-          <script>window.onload = () => { window.print(); window.close(); }</script>
-        </body>
-      </html>
-    `);
-
-    printWindow.document.close();
-  };
-
+  // ================= UI =================
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-6">
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold">Add New Bill</h1>
-        <Button variant="destructive" onClick={() => navigate("/billing")}>
+        <Button variant="destructive" onClick={() => navigate("/billing")}> 
           <X className="w-4 h-4 mr-1" /> Cancel
         </Button>
       </div>
 
-      <Input
-        placeholder="Customer Name"
-        value={customerName}
-        onChange={(e) => setCustomerName(e.target.value)}
-        className="max-w-md"
-      />
-
-      {/* Bill Date */}
-      <div className="mt-4">
-        <label className="text-sm font-medium">Bill Date</label>
-        <Input
-          type="date"
-          value={billDate}
-          onChange={(e) => setBillDate(e.target.value)}
-          className="border rounded-md p-2 w-50"
-        />
-      </div>
+      <Input placeholder="Customer Name" value={customerName} onChange={e => setCustomerName(e.target.value)} className="max-w-md" />
+      <Input type="date" value={billDate} onChange={e => setBillDate(e.target.value)} className="w-48" />
 
       <div className="flex gap-4 mt-4">
-    <div>
-        <label className="text-sm font-medium">Payment Mode</label>
-        <select
-            value={paymentMode}
-            onChange={(e) => setPaymentMode(e.target.value)}
-            className="border rounded-md p-2 w-44"
-        >
-            <option value="">Select</option>
-            <option value="Cash">Cash</option>
-            <option value="UPI">UPI</option>
-            <option value="Bank">Bank Transfer</option>
-            <option value="Card">Card</option>
+        <select value={paymentMode} onChange={e => setPaymentMode(e.target.value)} className="border rounded-md p-2 w-44">
+          <option value="">Select Payment Mode</option>
+          <option value="Cash">Cash</option>
+          <option value="UPI">UPI</option>
+          <option value="Bank Transfer">Bank Transfer</option>
+          <option value="Card">Card</option>
         </select>
-    </div>
 
-    <div>
-        <label className="text-sm font-medium">Status</label>
-        <select
-            value={status}
-            onChange={(e) => setStatus(e.target.value)}
-            className="border rounded-md p-2 w-44"
-        >
-            <option value="Paid">Paid</option>
-            <option value="Unpaid">Unpaid</option>
+        <select value={status} onChange={e => setStatus(e.target.value)} className="border rounded-md p-2 w-44">
+          <option value="Paid">Paid</option>
+          <option value="Unpaid">Unpaid</option>
+          <option value="Pending">New Invoice</option>
         </select>
-    </div>
-</div>
+      </div>
 
-{/* 👇 This is your Part Selection block */}
-<div className="flex items-center gap-3"></div>
-
-      {/* Part Selection */}
       <div className="flex items-center gap-3">
-        <select
-          className="border rounded-md p-2 w-64"
-          value={selectedPart ? selectedPart.id : ""}
-          onChange={(e) => {
-            const part = parts.find((p) => p.id === e.target.value);
-            setSelectedPart(part || null);
-          }}
-        >
-          <option value="">Select GSM Number...</option>
-          {parts.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.gsm_number}
-            </option>
+        <select value={selectedGSM} onChange={e => onGsmChange(e.target.value)} className="border rounded-md p-2 w-64">
+          <option value="">Select GSM</option>
+          {Array.from(new Set(stockList.map(s => String(s.gsm_number)))).map(g => (
+            <option key={g} value={g}>{g}</option>
           ))}
         </select>
 
-        <Input
-          type="number"
-          min={1}
-          value={quantity}
-          onChange={(e) => setQuantity(Number(e.target.value))}
-          className="w-24"
-          placeholder="Qty"
-        />
+        <select value={selectedDescription} disabled={!filteredDescriptions.length} onChange={e => onDescriptionChange(e.target.value)} className="border rounded-md p-2 w-64">
+          <option value="">Select Description</option>
+          {filteredDescriptions.map(p => <option key={p.id} value={p.description}>{p.description}</option>)}
+        </select>
 
-        <Input
-          type="number"
-          min={0}
-          value={customPrice}
-          onChange={(e) => setCustomPrice(e.target.value ? Number(e.target.value) : "")}
-          className="w-32"
-          placeholder="Price"
-        />
-
-        <Button onClick={addItem}>
-          <Plus className="w-4 h-4 mr-1" /> Add Item
-        </Button>
+        <Input type="number" min={1} className="w-24" value={quantity} onChange={e => setQuantity(Number(e.target.value))} />
+        <Input type="number" className="w-32" value={customPrice} onChange={e => setCustomPrice(e.target.value ? Number(e.target.value) : "")} placeholder="Price" />
+        <Button onClick={addItem}><Plus className="w-4 h-4 mr-1" /> Add Item</Button>
       </div>
 
-      {/* Bill Items */}
       <div className="border rounded-lg p-4 bg-white shadow-sm">
         <h3 className="font-semibold mb-2">Bill Items</h3>
-        {billItems.length === 0 ? (
-          <p className="text-sm text-gray-500">No items added yet.</p>
-        ) : (
-          <table className="w-full text-sm border-collapse">
+        {billItems.length === 0 ? <p>No items added</p> : (
+          <table className="w-full text-sm">
             <thead>
               <tr className="border-b">
-                <th className="text-left p-2">GSM</th>
-                <th className="text-right p-2">Qty</th>
-                <th className="text-right p-2">Price</th>
-                <th className="text-right p-2">Total</th>
+                <th>GSM</th><th>Description</th><th className="text-right">Qty</th><th className="text-right">Price</th><th className="text-right">Total</th>
               </tr>
             </thead>
             <tbody>
-              {billItems.map((i) => (
-                <tr key={i.id} className="border-b">
-                  <td className="p-2">{i.gsm_number}</td>
-                  <td className="text-right p-2">{i.quantity}</td>
-                  <td className="text-right p-2">₹{i.price.toFixed(2)}</td>
-                  <td className="text-right p-2">₹{i.total.toFixed(2)}</td>
+              {billItems.map((i, idx) => (
+                <tr key={idx} className="border-b">
+                  <td>{i.gsm_number}</td>
+                  <td>{i.description}</td>
+                  <td className="text-right">{i.quantity}</td>
+                  <td className="text-right">₹{i.price.toFixed(2)}</td>
+                  <td className="text-right">₹{i.total.toFixed(2)}</td>
                 </tr>
               ))}
             </tbody>
@@ -369,28 +244,27 @@ const BillingForm = () => {
         )}
       </div>
 
-      {/* Totals & Actions */}
       <div className="flex justify-between items-center mt-6">
         <div className="text-lg font-semibold">Total: ₹{subtotal.toFixed(2)}</div>
         <div className="flex gap-3">
           <Button
-            onClick={handlePrint}
-            disabled={billItems.length === 0}
-            className="bg-blue-600 hover:bg-blue-700 text-white"
+            onClick={() =>
+              printBillInvoice({
+                billNumber: savedBillNumber ?? "",
+                customerName,
+                billDate,
+                paymentMode,
+                items: billItems,
+                subtotal
+              })
+            }
+            className="bg-blue-600"
           >
-            <Printer className="w-4 h-4 mr-1" /> Print Invoice
+            <Printer className="w-4 h-4 mr-1" /> Print Bill
           </Button>
-
-          <Button
-            onClick={saveBill}
-            className="bg-green-600 hover:bg-green-700 text-white"
-          >
-            <Save className="w-4 h-4 mr-1" /> Save Bill
-          </Button>
+          <Button onClick={saveBill} className="bg-green-600" disabled={saving}><Save className="w-4 h-4 mr-1" /> {saving ? "Saving..." : "Save Bill"}</Button>
         </div>
       </div>
     </div>
   );
-};
-
-export default BillingForm;
+}
