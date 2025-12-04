@@ -3,6 +3,8 @@ import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { printBillInvoice } from "@/lib/BillingPrint";
+import { PrinterIcon } from "lucide-react";
 
 interface BillItem {
   id: number;
@@ -64,8 +66,10 @@ export default function BillingView() {
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold">Invoice {bill ? (bill.bill_number ?? `INV-${String(bill.id).padStart(4,"0")}`) : ""}</h1>
         <div className="flex gap-2">
-          <Button onClick={() => navigate(`/billing/edit/${id}`)}>Edit</Button>
-          <Button onClick={() => navigate("/billing")}>Back</Button>
+          <Button onClick={() => navigate(`/billing/edit/${id}`)} className="bg-yellow-500 text-white hover:bg-yellow-600">Edit</Button>
+          <Button variant="destructive" onClick={() => navigate("/billing")}>
+            Back
+          </Button>
         </div>
       </div>
 
@@ -106,6 +110,25 @@ export default function BillingView() {
           </h3>
         </div>
       </div>
+        <div className="mt-8 flex justify-end">
+          <div className="flex gap-3">
+            <Button
+              onClick={() => printBillInvoice({
+                bill, 
+                items, 
+                billNumber: bill?.bill_number ?? `INV-${String(bill?.id ?? "").padStart(4,"0")}`, 
+                customerName: bill?.customer_name, 
+                billDate: bill?.bill_date, 
+                paymentMode: bill?.payment_mode, 
+                subtotal: bill?.subtotal, 
+                status: bill?.status
+              })}
+              className="bg-blue-600"
+            >
+              <PrinterIcon className="w-4 h-4 mr-1" /> Print Bill
+            </Button>
+          </div>
+        </div>
     </div>
   );
 }

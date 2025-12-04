@@ -1,6 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import axios from "axios";
-import { Pencil, Save, Trash, X } from "lucide-react";
+import { Pencil, Save, Trash2, X } from "lucide-react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
 
 export interface Expense {
   id?: number;
@@ -12,36 +14,92 @@ export interface Expense {
 
 const API_URL = "http://localhost:5000/api/expenses";
 
+const PAGE_SIZE = 20;
+
 export default function ExpenseReport() {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [editingRowId, setEditingRowId] = useState<number | null>(null);
-  const [rowEditData, setRowEditData] = useState<Expense>({ item: "", qty: 1, amount: 0 });
+  const [rowEditData, setRowEditData] = useState<Expense>({
+    item: "",
+    qty: 1,
+    amount: 0,
+  });
 
-  const [expense, setExpense] = useState<Expense>({ item: "", qty: 1, amount: 0 });
-  const [loading, setLoading] = useState(false);
+  const [expense, setExpense] = useState<Expense>({
+    item: "",
+    qty: 1,
+    amount: 0,
+  });
+
+  const [searchTerm, setSearchTerm] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const [sortConfig, setSortConfig] = useState<{
+    key: keyof Expense;
+    direction: "asc" | "desc";
+  } | null>(null);
+
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [showModal, setShowModal] = useState(false);
+  const [newExpense, setNewExpense] = useState({
+    item: "",
+    qty: "",
+    amount: "",
+  });
 
   useEffect(() => {
     loadExpenses();
   }, []);
 
+  // ================= LOAD DATA =================
   const loadExpenses = async () => {
     const res = await axios.get<Expense[]>(API_URL);
-    setExpenses(res.data);
+    const sorted = res.data.sort((a, b) => b.id! - a.id!); // newest first
+    setExpenses(sorted);
   };
 
+  // ================= ADD EXPENSE =================
   const handleAddChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
-    setExpense(prev => ({ ...prev, [name]: Number.isNaN(Number(value)) ? value : Number(value) }));
+    setExpense((prev) => ({
+      ...prev,
+      [name]: name === "qty" || name === "amount" ? Number(value) : value,
+    }));
   };
 
   const addExpense = async () => {
     if (!expense.item || !expense.amount) return;
+
     const res = await axios.post<Expense>(API_URL, expense);
-    setExpenses(prev => [res.data, ...prev]);
+    setExpenses((prev) => [res.data, ...prev]);
     setExpense({ item: "", qty: 1, amount: 0 });
+    toast.success("Expense added");
   };
 
-  // ---------- INLINE EDIT LOGIC ----------
+  const handleSaveExpense = async () => {
+    if (!newExpense.item || !newExpense.qty || !newExpense.amount) {
+      toast.error("All fields are required");
+      return;
+    }
+
+    try {
+      await axios.post("http://localhost:5000/api/expenses", newExpense);
+
+      toast.success("Expense added successfully");
+
+      // Reset modal + fields
+      setShowModal(false);
+      setNewExpense({ item: "", qty: "", amount: "" });
+
+      // Reload list
+      loadExpenses();
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to add expense");
+    }
+  };
+
+  // ================= INLINE EDIT =================
   const startEditRow = (exp: Expense) => {
     setEditingRowId(exp.id!);
     setRowEditData({ ...exp });
@@ -49,9 +107,9 @@ export default function ExpenseReport() {
 
   const handleRowChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
-    setRowEditData(prev => ({
+    setRowEditData((prev) => ({
       ...prev,
-      [name]: name === "qty" || name === "amount" ? Number(value) : value
+      [name]: name === "qty" || name === "amount" ? Number(value) : value,
     }));
   };
 
@@ -59,115 +117,556 @@ export default function ExpenseReport() {
     await axios.put(`${API_URL}/${id}`, rowEditData);
     await loadExpenses();
     setEditingRowId(null);
+    toast.success("Updated");
   };
 
-  const cancelRowEdit = () => {
-    setEditingRowId(null);
-  };
+  const cancelRowEdit = () => setEditingRowId(null);
 
   const deleteRow = async (id?: number) => {
     if (!id) return;
     if (!window.confirm("Delete this expense?")) return;
+
     await axios.delete(`${API_URL}/${id}`);
-    setExpenses(prev => prev.filter(e => e.id !== id));
+    setExpenses((prev) => prev.filter((e) => e.id !== id));
+    toast.success("Deleted");
+  };
+
+  // =============================================
+  // FILTER + SEARCH + SORT + INFINITE SCROLL
+  // =============================================
+
+  const normalizeDate = (value: string) => {
+    const d = new Date(value);
+    if (isNaN(d.getTime())) return null;
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(
+      2,
+      "0"
+    )}-${String(d.getDate()).padStart(2, "0")}`;
+  };
+
+  const filteredAndSorted = useMemo(() => {
+    let list = [...expenses];
+
+    // 🔍 SEARCH
+    if (searchTerm.trim() !== "") {
+      const term = searchTerm.toLowerCase();
+      list = list.filter(
+        (exp) =>
+          exp.item.toLowerCase().includes(term) ||
+          String(exp.qty).includes(term) ||
+          String(exp.amount).includes(term) ||
+          (exp.created_at &&
+            new Date(exp.created_at).toLocaleDateString().includes(term))
+      );
+    }
+
+    // 📅 DATE RANGE
+    if (fromDate) {
+      const f = normalizeDate(fromDate);
+      list = list.filter((exp) => {
+        const expDate = normalizeDate(exp.created_at || "");
+        return expDate && f && expDate >= f;
+      });
+    }
+
+    if (toDate) {
+      const t = normalizeDate(toDate);
+      list = list.filter((exp) => {
+        const expDate = normalizeDate(exp.created_at || "");
+        return expDate && t && expDate <= t;
+      });
+    }
+
+    // ↕ SORT
+    if (sortConfig) {
+      const { key, direction } = sortConfig;
+      list.sort((a, b) => {
+        const dir = direction === "asc" ? 1 : -1;
+
+        const valA =
+          key === "created_at"
+            ? normalizeDate(a.created_at || "") || ""
+            : (a[key] as any);
+        const valB =
+          key === "created_at"
+            ? normalizeDate(b.created_at || "") || ""
+            : (b[key] as any);
+
+        if (valA < valB) return -1 * dir;
+        if (valA > valB) return 1 * dir;
+        return 0;
+      });
+    }
+
+    return list;
+  }, [expenses, searchTerm, fromDate, toDate, sortConfig]);
+
+  // Infinite scroll
+  useEffect(() => {
+    const onScroll = () => {
+      if (
+        window.innerHeight + window.scrollY >=
+        document.body.offsetHeight - 150
+      ) {
+        setVisibleCount((prev) =>
+          Math.min(prev + PAGE_SIZE, filteredAndSorted.length)
+        );
+      }
+    };
+    window.addEventListener("scroll", onScroll);
+    return () => window.removeEventListener("scroll", onScroll);
+  }, [filteredAndSorted.length]);
+
+  const visibleExpenses = filteredAndSorted.slice(0, visibleCount);
+
+  // SORT
+  const handleSort = (key: keyof Expense) => {
+    setSortConfig((prev) => {
+      if (!prev || prev.key !== key)
+        return { key, direction: "asc" as const };
+      return {
+        key,
+        direction: prev.direction === "asc" ? "desc" : "asc",
+      };
+    });
+  };
+
+  const sortIndicator = (key: keyof Expense) =>
+    sortConfig?.key === key ? (sortConfig.direction === "asc" ? " ▲" : " ▼") : "";
+
+  // =============================================
+  // EXPORT HELPERS
+  // =============================================
+  const exportCSV = () => {
+    if (!filteredAndSorted.length) return toast.error("No data to export");
+
+    const header = "Date,Item,Qty,Amount\n";
+
+    const rows = filteredAndSorted
+      .map((e) => {
+        const d = e.created_at
+          ? new Date(e.created_at).toLocaleDateString()
+          : "-";
+        return `"${d}","${e.item}",${e.qty},${e.amount}`;
+      })
+      .join("\n");
+
+    const blob = new Blob([header + rows], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "expenses.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportXLSX = () => {
+    if (!filteredAndSorted.length) return toast.error("No data to export");
+
+    const header = "Date,Item,Qty,Amount\n";
+
+    const rows = filteredAndSorted
+      .map((e) => {
+        const d = e.created_at
+          ? new Date(e.created_at).toLocaleDateString()
+          : "-";
+        return `"${d}","${e.item}",${e.qty},${e.amount}`;
+      })
+      .join("\n");
+
+    const blob = new Blob([header + rows], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    });
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "expenses.xlsx";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportPDF = () => {
+    if (!filteredAndSorted.length) return toast.error("No data to export");
+
+    const win = window.open("", "_blank");
+    if (!win) return;
+
+    const rows = filteredAndSorted
+      .map((e) => {
+        const d = e.created_at
+          ? new Date(e.created_at).toLocaleDateString()
+          : "-";
+        return `
+        <tr>
+          <td>${d}</td>
+          <td>${e.item}</td>
+          <td>${e.qty}</td>
+          <td>${e.amount}</td>
+        </tr>`;
+      })
+      .join("");
+
+    win.document.write(`
+      <html>
+      <head>
+        <title>Expense Report</title>
+        <style>
+          table { width: 100%; border-collapse: collapse; }
+          th, td { padding: 6px; border: 1px solid #ccc; font-size: 12px; }
+          th { background: #f3f4f6; }
+        </style>
+      </head>
+      <body>
+        <h2>Expense Report</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Item</th>
+              <th>Qty</th>
+              <th>Amount</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </body>
+      </html>
+    `);
+
+    win.document.close();
+    win.print();
+  };
+
+  // =============================================
+  // UI
+  // =============================================
+
+  const clearFilters = () => {
+    setSearchTerm("");
+    setFromDate("");
+    setToDate("");
+    setSortConfig(null);
   };
 
   return (
-    <div className="p-6 max-w-5xl mx-auto space-y-6">
-      <h1 className="text-2xl font-bold flex items-center gap-2">📊 Expense Report</h1>
+    <div className="p-6 max-w-6xl mx-auto space-y-6">
 
-      {/* ADD FORM */}
-      <div className="bg-white rounded-2xl p-6 shadow border mb-8 flex gap-4 max-w-5xl mx-auto">
+      {/* PAGE TITLE */}
+      <div className="flex justify-between items-center">
+      <h1 className="text-3xl font-bold flex items-center gap-2">
+        📊 Expense Report
+      </h1>
+      {/* ADD EXPENSE */}
+      <button
+        onClick={() => setShowModal(true)}
+        className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-xl font-medium"
+      >
+        + Add New Expense
+      </button>
+      </div>
+
+      {/* FILTER BAR */}
+      <div className="bg-white p-4 rounded-xl shadow border flex flex-wrap gap-4 items-end">
+
+        {/* Search */}
         <input
-          name="item"
-          placeholder="Enter item name"
-          className="flex-1 border rounded-xl px-4 py-3"
-          value={expense.item}
-          onChange={handleAddChange}
+          type="text"
+          placeholder="Search"
+          className="border rounded-lg px-4 py-2 flex-1"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
         />
-        <input
-          type="number"
-          name="qty"
-          className="w-32 border rounded-xl px-4 py-3"
-          value={expense.qty}
-          onChange={handleAddChange}
-        />
-        <input
-          type="number"
-          name="amount"
-          className="w-40 border rounded-xl px-4 py-3"
-          value={expense.amount}
-          onChange={handleAddChange}
-        />
-        <button onClick={addExpense} className="bg-blue-600 text-white px-6 py-3 rounded-xl">+ Add</button>
+
+        {/* From Date */}
+        <div className="flex flex-col">
+          <label className="text-xs mb-1">From Date</label>
+          <input
+            type="date"
+            className="border rounded-lg px-3 py-2"
+            value={fromDate}
+            onChange={(e) => setFromDate(e.target.value)}
+          />
+        </div>
+
+        {/* To Date */}
+        <div className="flex flex-col">
+          <label className="text-xs mb-1">To Date</label>
+          <input
+            type="date"
+            className="border rounded-lg px-3 py-2"
+            value={toDate}
+            onChange={(e) => setToDate(e.target.value)}
+          />
+        </div>
+
+        {/* EXPORT & RESET */}
+        <div className="w-full flex items-center justify-between mt-3">
+          <div className="flex gap-2">
+
+            <Button
+              size="sm"
+              className="bg-blue-600 hover:bg-blue-700 text-white"
+              onClick={exportCSV}
+            >
+              Export CSV
+            </Button>
+
+            <Button
+              size="sm"
+              className="bg-green-600 hover:bg-green-700 text-white"
+              onClick={exportXLSX}
+            >
+              Export XLSX
+            </Button>
+
+            <Button
+              size="sm"
+              className="bg-red-600 hover:bg-red-700 text-white"
+              onClick={exportPDF}
+            >
+              Export PDF
+            </Button>
+
+          </div>
+
+          <Button
+            size="sm"
+            variant="outline"
+            className="bg-gray-200 hover:bg-gray-300 text-black"
+            onClick={clearFilters}
+          >
+            Clear Filters
+          </Button>
+        </div>
       </div>
 
       {/* TABLE */}
-      <div className="bg-white rounded-2xl shadow border overflow-hidden max-w-5xl mx-auto">
+      <div className="bg-white rounded-xl shadow border overflow-hidden">
         <table className="w-full">
-          <thead className="bg-gray-100">
+          <thead className="bg-gray-100 text-gray-600">
             <tr>
-              <th className="p-4 text-left font-normal text-gray-600">Date</th>
-              <th className="p-4 text-left font-normal text-gray-600">Item</th>
-              <th className="p-4 text-center font-normal text-gray-600">Qty</th>
-              <th className="p-4 text-center font-normal text-gray-600">Amount</th>
-              <th className="p-4 text-right font-normal text-gray-600">Actions</th>
+              <th
+                className="p-4 text-left cursor-pointer"
+                onClick={() => handleSort("created_at")}
+              >
+                Date {sortIndicator("created_at")}
+              </th>
+
+              <th
+                className="p-4 text-left cursor-pointer"
+                onClick={() => handleSort("item")}
+              >
+                Item {sortIndicator("item")}
+              </th>
+
+              <th
+                className="p-4 text-center cursor-pointer"
+                onClick={() => handleSort("qty")}
+              >
+                Qty {sortIndicator("qty")}
+              </th>
+
+              <th
+                className="p-4 text-center cursor-pointer"
+                onClick={() => handleSort("amount")}
+              >
+                Amount {sortIndicator("amount")}
+              </th>
+
+              <th className="p-4 text-right">Actions</th>
             </tr>
           </thead>
+
           <tbody>
-            {expenses.map(exp => (
-              <tr key={exp.id} className="border-t">
-                {editingRowId === exp.id ? (
-                  <>
-                    <td className="p-4"><input name="item" value={rowEditData.item} onChange={handleRowChange} className="border rounded-lg px-3 py-2 w-full" /></td>
-                    <td className="p-4  text-center"><input type="number" name="qty" value={rowEditData.qty} onChange={handleRowChange} className="border rounded-lg px-3 py-2 w-full" /></td>
-                    <td className="p-4  text-center"><input type="number" name="amount" value={rowEditData.amount} onChange={handleRowChange} className="border rounded-lg px-3 py-2 w-full" /></td>
-                    <td className="p-4 flex justify-end gap-4">
-                      <button
-                        onClick={() => saveRowUpdate(exp.id!)}
-                        className="p-2 rounded-lg text-gray-600 hover:bg-green-100 hover:text-green-600 transition-colors duration-200"
-                        title="Save"
-                      >
-                        <Save size={18} />
-                      </button>
-                      <button
-                        onClick={cancelRowEdit}
-                        className="p-2 rounded-lg text-gray-600 hover:bg-red-100 hover:text-red-600 transition-colors duration-200"
-                        title="Cancel"
-                      >
-                        <X size={18} />
-                      </button>
-                    </td>
-                  </>
-                ) : (
-                  <>
-                    <td className="p-4">{exp.created_at ? new Date(exp.created_at).toLocaleDateString() : "-"}</td>
-                    <td className="p-4">{exp.item}</td>
-                    <td className="p-4 text-center">{exp.qty}</td>
-                    <td className="p-4 text-center">₹{Number(exp.amount).toFixed(2)}</td>
-                    <td className="p-4 flex justify-end gap-4">
-                      <button
-                        onClick={() => startEditRow(exp)}
-                        className="p-2 rounded-lg text-gray-600 hover:bg-blue-100 hover:text-blue-600 transition-colors duration-200"
-                        title="Edit"
-                      >
-                        <Pencil size={18} />
-                      </button>
-                      <button
-                        onClick={() => deleteRow(exp.id)}
-                        className="p-2 rounded-lg text-gray-600 hover:bg-red-100 hover:text-red-600 transition-colors duration-200"
-                        title="Delete"
-                      >
-                        <Trash size={18} />
-                      </button>
-                    </td>
-                  </>
-                )}
+            {visibleExpenses.length === 0 ? (
+              <tr>
+                <td colSpan={5} className="p-6 text-center text-gray-500">
+                  No expenses found.
+                </td>
               </tr>
-            ))}
+            ) : (
+              visibleExpenses.map((exp) => (
+                <tr key={exp.id} className="border-t">
+
+                  {/* EDIT MODE */}
+                  {editingRowId === exp.id ? (
+                    <>
+                      <td className="p-4">
+                        <input
+                          disabled
+                          value={
+                            exp.created_at
+                              ? new Date(exp.created_at).toLocaleDateString()
+                              : "-"
+                          }
+                          className="border rounded-lg px-3 py-2 w-full bg-gray-100"
+                        />
+                      </td>
+
+                      <td className="p-4">
+                        <input
+                          name="item"
+                          value={rowEditData.item}
+                          onChange={handleRowChange}
+                          className="border rounded-lg px-3 py-2 w-full"
+                        />
+                      </td>
+
+                      <td className="p-4 text-center">
+                        <input
+                          type="number"
+                          name="qty"
+                          value={rowEditData.qty}
+                          onChange={handleRowChange}
+                          className="border rounded-lg px-3 py-2 w-full"
+                        />
+                      </td>
+
+                      <td className="p-4 text-center">
+                        <input
+                          type="number"
+                          name="amount"
+                          value={rowEditData.amount}
+                          onChange={handleRowChange}
+                          className="border rounded-lg px-3 py-2 w-full"
+                        />
+                      </td>
+
+                      <td className="p-4 flex justify-end gap-3">
+                        <button
+                          onClick={() => saveRowUpdate(exp.id!)}
+                          className="p-2 rounded-lg text-green-600 hover:bg-green-100"
+                        >
+                          <Save size={18} />
+                        </button>
+                        <button
+                          onClick={cancelRowEdit}
+                          className="p-2 rounded-lg text-red-600 hover:bg-red-100"
+                        >
+                          <X size={18} />
+                        </button>
+                      </td>
+                    </>
+                  ) : (
+                    /* VIEW MODE */
+                    <>
+                      <td className="p-4">
+                        {exp.created_at
+                          ? new Date(exp.created_at).toLocaleDateString()
+                          : "-"}
+                      </td>
+
+                      <td className="p-4">{exp.item}</td>
+
+                      <td className="p-4 text-center">{exp.qty}</td>
+
+                      <td className="p-4 text-center">
+                        ₹{Number(exp.amount).toFixed(2)}
+                      </td>
+
+                      <td className="p-4 flex justify-end gap-3">
+                        <button
+                          onClick={() => startEditRow(exp)}
+                          className="p-2 rounded-lg text-blue-600 hover:bg-blue-100"
+                        >
+                          <Pencil size={18} />
+                        </button>
+
+                        <button
+                          onClick={() => deleteRow(exp.id)}
+                          className="p-2 rounded-lg text-red-600 hover:bg-red-100"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      </td>
+                    </>
+                  )}
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
+
+        {/* scroll hint */}
+        {visibleExpenses.length < filteredAndSorted.length && (
+          <p className="text-center text-xs text-gray-400 py-3">
+            Scroll down to load more...
+          </p>
+        )}
       </div>
+
+      {/* ADD EXPENSE MODAL */}
+      {showModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-40 flex justify-center items-center z-50">
+          <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-lg animate-fade-in">
+
+            <h2 className="text-xl font-semibold mb-4">Add New Expense</h2>
+
+            {/* Item */}
+            <div className="mb-3">
+              <label className="block text-sm mb-1">Item</label>
+              <input
+                type="text"
+                className="w-full border rounded-lg px-4 py-2"
+                value={newExpense.item}
+                onChange={(e) =>
+                  setNewExpense({ ...newExpense, item: e.target.value })
+                }
+                placeholder="Enter item name"
+              />
+            </div>
+
+            {/* Qty */}
+            <div className="mb-3">
+              <label className="block text-sm mb-1">Quantity</label>
+              <input
+                type="number"
+                className="w-full border rounded-lg px-4 py-2"
+                value={newExpense.qty}
+                onChange={(e) =>
+                  setNewExpense({ ...newExpense, qty: e.target.value })
+                }
+                placeholder="0"
+              />
+            </div>
+
+            {/* Amount */}
+            <div className="mb-3">
+              <label className="block text-sm mb-1">Amount</label>
+              <input
+                type="number"
+                className="w-full border rounded-lg px-4 py-2"
+                value={newExpense.amount}
+                onChange={(e) =>
+                  setNewExpense({ ...newExpense, amount: e.target.value })
+                }
+                placeholder="0.00"
+              />
+            </div>
+
+            {/* Buttons */}
+            <div className="flex justify-end gap-3 mt-5">
+
+              <button
+                onClick={() => setShowModal(false)}
+                className="px-4 py-2 rounded-lg bg-gray-200 hover:bg-gray-300"
+              >
+                Cancel
+              </button>
+
+              <button
+                onClick={handleSaveExpense}
+                className="px-5 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700"
+              >
+                Save Expense
+              </button>
+
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

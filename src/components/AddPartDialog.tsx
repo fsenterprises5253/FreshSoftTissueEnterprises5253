@@ -252,7 +252,7 @@ const AddPartDialog = ({ onPartAdded }: AddPartDialogProps) => {
             </div>
           </div>
 
-          <Button type="submit" disabled={loading}>
+          <Button className="bg-green-600 hover:bg-green-700" type="submit" disabled={loading}>
             {loading ? "Adding..." : "Add Stock"}
           </Button>
         </form>

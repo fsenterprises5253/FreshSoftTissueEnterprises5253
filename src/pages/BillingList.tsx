@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -15,16 +15,48 @@ import { toast } from "sonner";
 // ================= TYPES =================
 interface SavedBill {
   id: number;
+  bill_Number: string;
   customer_name: string;
   payment_mode: string | null;
   status: string | null;
   bill_date: string;
   subtotal: number;
+
+  // Optional, if backend sends them
+  items_count?: number;
+  items?: any[];
 }
+
+type SortKey =
+  | "bill_no"
+  | "customer_name"
+  | "bill_date"
+  | "subtotal"
+  | "payment_mode"
+  | "status"
+  | "items_count";
+
+interface SortConfig {
+  key: SortKey;
+  direction: "asc" | "desc";
+}
+
+const PAGE_SIZE = 20;
 
 const BillingList = () => {
   const navigate = useNavigate();
   const [savedBills, setSavedBills] = useState<SavedBill[]>([]);
+
+  // SEARCH + FILTER STATE
+  const [searchTerm, setSearchTerm] = useState("");
+  const [filterStatus, setFilterStatus] = useState<string>("All");
+  const [filterPaymentMode, setFilterPaymentMode] = useState<string>("All");
+  const [fromDate, setFromDate] = useState<string>("");
+  const [toDate, setToDate] = useState<string>("");
+
+  // SORT + INFINITE SCROLL
+  const [sortConfig, setSortConfig] = useState<SortConfig | null>(null);
+  const [visibleCount, setVisibleCount] = useState<number>(PAGE_SIZE);
 
   // ✅ FETCH BILLS
   const fetchBills = async () => {
@@ -33,8 +65,9 @@ const BillingList = () => {
       const data = await res.json();
 
       if (Array.isArray(data)) {
-        const sorted = data.sort((a, b) => b.id - a.id); // NEWEST FIRST
-        setSavedBills(data);
+        // NEWEST FIRST
+        const sorted = data.sort((a: SavedBill, b: SavedBill) => b.id - a.id);
+        setSavedBills(sorted);
       } else {
         setSavedBills([]);
       }
@@ -49,7 +82,7 @@ const BillingList = () => {
     fetchBills();
   }, []);
 
-  // ✅ DELETE BILL (USING ID - CORRECT WAY)
+  // ✅ DELETE BILL
   const deleteBill = async (id: number) => {
     if (!window.confirm("Are you sure you want to delete this bill?")) return;
 
@@ -69,21 +102,635 @@ const BillingList = () => {
     }
   };
 
+  // ================= FORMAT / PARSE HELPERS =================
+  const normalizeDate = (value: string) => {
+    const d = new Date(value);
+    if (isNaN(d.getTime())) return null;
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(
+      2,
+      "0"
+    )}-${String(d.getDate()).padStart(2, "0")}`;
+  };
+
+  const getBillNo = (b: SavedBill) => `INV-${String(b.id).padStart(4, "0")}`;
+
+  const getItemsCount = (b: SavedBill) => {
+    if (typeof b.items_count === "number") return b.items_count;
+    if (Array.isArray(b.items)) return b.items.length;
+    return "";
+  };
+
+  // ================= FILTER + SORT + SEARCH =================
+  const filteredAndSortedBills = useMemo(() => {
+    let list = [...savedBills];
+
+    // 1) SEARCH
+    if (searchTerm.trim() !== "") {
+      const term = searchTerm.toLowerCase();
+
+      list = list.filter((bill) => {
+        const billNo = getBillNo(bill);
+        const dateStr = new Date(bill.bill_date).toLocaleDateString();
+        const itemsCount = String(getItemsCount(bill) || "");
+
+        return (
+          billNo.toLowerCase().includes(term) ||
+          bill.customer_name.toLowerCase().includes(term) ||
+          (bill.payment_mode || "").toLowerCase().includes(term) ||
+          (bill.status || "").toLowerCase().includes(term) ||
+          dateStr.toLowerCase().includes(term) ||
+          String(bill.subtotal).includes(term) ||
+          itemsCount.includes(term)
+        );
+      });
+    }
+
+    // 2) FILTERS
+    if (filterStatus !== "All") {
+      list = list.filter((b) => (b.status || "") === filterStatus);
+    }
+
+    if (filterPaymentMode !== "All") {
+      list = list.filter((b) => (b.payment_mode || "") === filterPaymentMode);
+    }
+
+    if (fromDate) {
+      const fromNorm = normalizeDate(fromDate);
+      if (fromNorm) {
+        list = list.filter((b) => {
+          const billD = normalizeDate(b.bill_date);
+          return billD && billD >= fromNorm;
+        });
+      }
+    }
+
+    if (toDate) {
+      const toNorm = normalizeDate(toDate);
+      if (toNorm) {
+        list = list.filter((b) => {
+          const billD = normalizeDate(b.bill_date);
+          return billD && billD <= toNorm;
+        });
+      }
+    }
+
+    // 3) SORT
+    if (sortConfig) {
+      const { key, direction } = sortConfig;
+      list.sort((a, b) => {
+        const dir = direction === "asc" ? 1 : -1;
+
+        const getValue = (bill: SavedBill) => {
+          switch (key) {
+            case "bill_no":
+              return getBillNo(bill);
+            case "customer_name":
+              return bill.customer_name || "";
+            case "bill_date":
+              return normalizeDate(bill.bill_date) || "";
+            case "subtotal":
+              return bill.subtotal;
+            case "payment_mode":
+              return bill.payment_mode || "";
+            case "status":
+              return bill.status || "";
+            case "items_count":
+              return Number(getItemsCount(bill)) || 0;
+            default:
+              return "";
+          }
+        };
+
+        const valA = getValue(a);
+        const valB = getValue(b);
+
+        if (valA < valB) return -1 * dir;
+        if (valA > valB) return 1 * dir;
+        return 0;
+      });
+    }
+
+    return list;
+  }, [
+    savedBills,
+    searchTerm,
+    filterStatus,
+    filterPaymentMode,
+    fromDate,
+    toDate,
+    sortConfig,
+  ]);
+
+  // Reset visible count when filters change
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [searchTerm, filterStatus, filterPaymentMode, fromDate, toDate, savedBills.length]);
+
+  // Infinite scroll
+  useEffect(() => {
+    const onScroll = () => {
+      if (
+        window.innerHeight + window.scrollY >=
+        document.body.offsetHeight - 100
+      ) {
+        setVisibleCount((prev) =>
+          Math.min(prev + PAGE_SIZE, filteredAndSortedBills.length)
+        );
+      }
+    };
+
+    window.addEventListener("scroll", onScroll);
+    return () => window.removeEventListener("scroll", onScroll);
+  }, [filteredAndSortedBills.length]);
+
+  const visibleBills = filteredAndSortedBills.slice(0, visibleCount);
+
+  // ================= SORT HANDLER =================
+  const handleSort = (key: SortKey) => {
+    setSortConfig((prev) => {
+      if (!prev || prev.key !== key) {
+        return { key, direction: "asc" };
+      }
+      return {
+        key,
+        direction: prev.direction === "asc" ? "desc" : "asc",
+      };
+    });
+  };
+
+  const getSortIndicator = (key: SortKey) => {
+    if (!sortConfig || sortConfig.key !== key) return "";
+    return sortConfig.direction === "asc" ? " ▲" : " ▼";
+  };
+
+  // ================= EXPORT HELPERS =================
+  const buildCSV = (rows: SavedBill[]) => {
+    const header = [
+      "Bill No",
+      "Customer",
+      "Date",
+      "Items",
+      "Total",
+      "Payment Mode",
+      "Status",
+    ];
+
+    const body = rows.map((b) => {
+      const billNo = getBillNo(b);
+      const date = new Date(b.bill_date).toLocaleDateString();
+      const itemsCount = getItemsCount(b);
+      const total = Number(b.subtotal).toFixed(2);
+      const payment = b.payment_mode || "";
+      const status = b.status || "";
+
+      const fields = [
+        billNo,
+        b.customer_name,
+        date,
+        itemsCount,
+        total,
+        payment,
+        status,
+      ];
+
+      // Escape CSV
+      return fields
+        .map((field) =>
+          `"${String(field ?? "").replace(/"/g, '""')}"`
+        )
+        .join(",");
+    });
+
+    return [header.join(","), ...body].join("\n");
+  };
+
+  const exportCSV = async () => {
+    if (!filteredAndSortedBills.length) {
+      toast.error("No data to export");
+      return;
+    }
+
+    let rows = [];
+    rows.push([
+      "Bill No",
+      "Customer",
+      "Date",
+      "GSM",
+      "Description",
+      "Quantity",
+      "Price",
+      "Total",
+      "Payment Mode",
+      "Status"
+    ]);
+
+    // 🔥 Fetch items for each bill
+    for (const bill of filteredAndSortedBills) {
+      const billNo = bill.bill_Number || `INV-${String(bill.id).padStart(4, "0")}`;
+      const date = new Date(bill.bill_date).toLocaleDateString();
+      const payment = bill.payment_mode || "-";
+      const status = bill.status || "-";
+
+      let items = [];
+      try {
+        const res = await fetch(`http://localhost:5000/api/billing/${bill.id}/items`);
+        items = await res.json();
+      } catch (err) {
+        console.log("Error fetching items for CSV:", err);
+      }
+
+      if (items.length === 0) {
+        rows.push([
+          billNo,
+          bill.customer_name,
+          date,
+          "-",
+          "-",
+          "-",
+          "-",
+          "-",
+          payment,
+          status
+        ]);
+      } else {
+        items.forEach(item => {
+          rows.push([
+            billNo,
+            bill.customer_name,
+            date,
+            item.gsm_number || "-",
+            item.description || "-",
+            item.quantity || 0,
+            item.price || 0,
+            item.total || 0,
+            payment,
+            status
+          ]);
+        });
+      }
+    }
+
+    // Convert to CSV
+    const csv = rows.map(r => r.join(",")).join("\n");
+
+    const blob = new Blob([csv], {
+      type: "text/csv;charset=utf-8;"
+    });
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "billing_items.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // ⭐ EXPORT XLSX (Excel-friendly CSV trick)
+  const exportXLSX = async () => {
+    if (!filteredAndSortedBills.length) {
+      toast.error("No data to export");
+      return;
+    }
+
+    let rows = [];
+    rows.push([
+      "Bill No",
+      "Customer",
+      "Date",
+      "GSM",
+      "Description",
+      "Quantity",
+      "Price",
+      "Total",
+      "Payment Mode",
+      "Status"
+    ]);
+
+    // 🔥 Fetch items for each bill
+    for (const bill of filteredAndSortedBills) {
+      const billNo = bill.bill_Number || `INV-${String(bill.id).padStart(4, "0")}`;
+      const date = new Date(bill.bill_date).toLocaleDateString();
+      const payment = bill.payment_mode || "-";
+      const status = bill.status || "-";
+
+      let items = [];
+      try {
+        const res = await fetch(`http://localhost:5000/api/billing/${bill.id}/items`);
+        items = await res.json();
+      } catch (err) {
+        console.log("Error fetching items for Excel:", err);
+      }
+
+      if (items.length === 0) {
+        rows.push([
+          billNo,
+          bill.customer_name,
+          date,
+          "-",
+          "-",
+          "-",
+          "-",
+          "-",
+          payment,
+          status
+        ]);
+      } else {
+        items.forEach(item => {
+          rows.push([
+            billNo,
+            bill.customer_name,
+            date,
+            item.gsm_number || "-",
+            item.description || "-",
+            item.quantity || 0,
+            item.price || 0,
+            item.total || 0,
+            payment,
+            status
+          ]);
+        });
+      }
+    }
+
+    // Excel-friendly CSV
+    const csv = rows.map(r => r.join(",")).join("\n");
+
+    const blob = new Blob([csv], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    });
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "billing_items.xlsx";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportPDF = async () => {
+    if (!filteredAndSortedBills.length) {
+      toast.error("No data to export");
+      return;
+    }
+
+    const win = window.open("", "_blank");
+    if (!win) return;
+
+    const tableRows = [];
+
+    for (const bill of filteredAndSortedBills) {
+      const billNo = bill.bill_Number || `INV-${String(bill.id).padStart(4, "0")}`;
+      const date = new Date(bill.bill_date).toLocaleDateString();
+      const payment = bill.payment_mode || "-";
+      const status = bill.status || "-";
+
+      // 🔥 FETCH REAL ITEMS FOR THIS BILL
+      let items = [];
+      try {
+        const res = await fetch(
+          `http://localhost:5000/api/billing/${bill.id}/items`
+        );
+        items = await res.json();
+      } catch (err) {
+        console.log("Error loading items for bill:", bill.id);
+      }
+
+      // ITEM ROWS (if items exist)
+      if (items.length > 0) {
+        items.forEach((item, index) => {
+          tableRows.push(`
+            <tr>
+              ${
+                index === 0
+                  ? `
+                <td rowspan="${items.length}">${billNo}</td>
+                <td rowspan="${items.length}">${bill.customer_name}</td>
+                <td rowspan="${items.length}">${date}</td>
+              `
+                  : ""
+              }
+
+              <td>${item.gsm_number || "-"}</td>
+              <td>${item.description || "-"}</td>
+              <td>${item.quantity || 0}</td>
+              <td>${Number(item.price).toFixed(2)}</td>
+              <td>${Number(item.total).toFixed(2)}</td>
+
+              ${
+                index === 0
+                  ? `
+                <td rowspan="${items.length}">${payment}</td>
+                <td rowspan="${items.length}">${status}</td>
+              `
+                  : ""
+              }
+            </tr>
+          `);
+        });
+      } else {
+        // NO ITEMS AVAILABLE → fallback
+        tableRows.push(`
+          <tr>
+            <td>${billNo}</td>
+            <td>${bill.customer_name}</td>
+            <td>${date}</td>
+            <td>-</td>
+            <td>-</td>
+            <td>-</td>
+            <td>-</td>
+            <td>-</td>
+            <td>${payment}</td>
+            <td>${status}</td>
+          </tr>
+        `);
+      }
+    }
+
+    win.document.write(`
+      <html>
+      <head>
+        <style>
+          table { width: 100%; border-collapse: collapse; }
+          th, td { border: 1px solid #ccc; padding: 6px; font-size: 12px; }
+          th { background: #f3f4f6; }
+          body { font-family: Arial; padding: 20px; }
+        </style>
+      </head>
+      <body>
+        <h1>Billing List</h1>
+        <table>
+          <thead>
+            <tr>
+              <th>Bill No</th>
+              <th>Customer</th>
+              <th>Date</th>
+              <th>GSM</th>
+              <th>Description</th>
+              <th>Quantity</th>
+              <th>Price</th>
+              <th>Total</th>
+              <th>Payment Mode</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tableRows.join("")}
+          </tbody>
+        </table>
+      </body>
+      </html>
+    `);
+
+    win.document.close();
+    win.print();
+  };
+
+  // OPTIONS FOR FILTER DROPDOWNS
+  const statusOptions = Array.from(
+    new Set(
+      savedBills
+        .map((b) => b.status)
+        .filter((v): v is string => !!v)
+    )
+  );
+
+  const paymentModeOptions = Array.from(
+    new Set(
+      savedBills
+        .map((b) => b.payment_mode)
+        .filter((v): v is string => !!v)
+    )
+  );
+
+  const clearFilters = () => {
+    setSearchTerm("");
+    setFilterStatus("All");
+    setFilterPaymentMode("All");
+    setFromDate("");
+    setToDate("");
+    setSortConfig(null);
+  };
+
   return (
     <div className="p-10 w-full space-y-10">
-
       {/* HEADER */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <h1 className="text-3xl font-bold flex items-center gap-2">
           🧾 Billing Section
         </h1>
 
-        <Button
-          onClick={() => navigate("/billing/new")}
-          className="bg-blue-600 hover:bg-blue-700 text-white text-lg px-6 py-3 rounded-lg shadow"
-        >
-          + Add New Bill
-        </Button>
+        {/* TOP RIGHT: ADD BILL BUTTON */}
+        <div className="flex items-center gap-4">
+          <Button
+            onClick={() => navigate("/billing/new")}
+            className="bg-blue-600 hover:bg-blue-700 text-white text-lg px-6 py-3 rounded-lg shadow"
+          >
+            + Add New Bill
+          </Button>
+        </div>
+      </div>
+
+      {/* SEARCH + FILTER BAR */}
+      <div className="border rounded-lg p-4 bg-white shadow-md space-y-4">
+        <div className="flex flex-wrap items-center gap-4">
+          <input
+            type="text"
+            placeholder="Search "
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="border px-4 py-2 rounded-lg shadow-sm min-w-[260px] flex-1"
+          />
+
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex flex-col">
+              <label className="text-xs mb-1">From Date</label>
+              <input
+                type="date"
+                value={fromDate}
+                onChange={(e) => setFromDate(e.target.value)}
+                className="border px-3 py-1 rounded-md text-sm"
+              />
+            </div>
+
+            <div className="flex flex-col">
+              <label className="text-xs mb-1">To Date</label>
+              <input
+                type="date"
+                value={toDate}
+                onChange={(e) => setToDate(e.target.value)}
+                className="border px-3 py-1 rounded-md text-sm"
+              />
+            </div>
+
+            <div className="flex flex-col">
+              <label className="text-xs mb-1">Status</label>
+              <select
+                value={filterStatus}
+                onChange={(e) => setFilterStatus(e.target.value)}
+                className="border px-3 py-1 rounded-md text-sm"
+              >
+                <option value="All">All</option>
+                {statusOptions.map((st) => (
+                  <option key={st} value={st}>
+                    {st === "Pending" ? "New Invoice" : st}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex flex-col">
+              <label className="text-xs mb-1">Payment Mode</label>
+              <select
+                value={filterPaymentMode}
+                onChange={(e) => setFilterPaymentMode(e.target.value)}
+                className="border px-3 py-1 rounded-md text-sm"
+              >
+                <option value="All">All</option>
+                {paymentModeOptions.map((pm) => (
+                  <option key={pm} value={pm}>
+                    {pm}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {/* EXPORT & CLEAR */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              onClick={exportCSV}
+              className="bg-blue-600 hover:bg-blue-700 text-white"
+            >
+              Export CSV
+            </Button>
+            <Button
+              size="sm"
+              onClick={exportXLSX}
+              className="bg-green-600 hover:bg-green-700 text-white"
+            >
+              Export XLSX
+            </Button>
+            <Button
+              size="sm"
+              onClick={exportPDF}
+              className="bg-red-600 hover:bg-red-700 text-white"
+            >
+              Export PDF
+            </Button>
+          </div>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={clearFilters}
+            className="border-gray-300"
+          >
+            Clear Filters
+          </Button>
+        </div>
       </div>
 
       {/* TABLE */}
@@ -93,26 +740,61 @@ const BillingList = () => {
         <Table>
           <TableHeader>
             <TableRow className="bg-gray-100">
-              <TableHead>Bill No</TableHead>
-              <TableHead>Customer</TableHead>
-              <TableHead>Date</TableHead>
-              <TableHead>Total</TableHead>
-              <TableHead>Payment Mode</TableHead>
-              <TableHead>Status</TableHead>
+              <TableHead
+                className="cursor-pointer"
+                onClick={() => handleSort("bill_no")}
+              >
+                Bill No{getSortIndicator("bill_no")}
+              </TableHead>
+              <TableHead
+                className="cursor-pointer"
+                onClick={() => handleSort("customer_name")}
+              >
+                Customer{getSortIndicator("customer_name")}
+              </TableHead>
+              <TableHead
+                className="cursor-pointer"
+                onClick={() => handleSort("bill_date")}
+              >
+                Date{getSortIndicator("bill_date")}
+              </TableHead>
+              <TableHead
+                className="cursor-pointer"
+                onClick={() => handleSort("subtotal")}
+              >
+                Total{getSortIndicator("subtotal")}
+              </TableHead>
+              <TableHead
+                className="cursor-pointer"
+                onClick={() => handleSort("payment_mode")}
+              >
+                Payment Mode{getSortIndicator("payment_mode")}
+              </TableHead>
+              <TableHead
+                className="cursor-pointer"
+                onClick={() => handleSort("status")}
+              >
+                Status{getSortIndicator("status")}
+              </TableHead>
               <TableHead className="text-center">Actions</TableHead>
             </TableRow>
           </TableHeader>
 
           <TableBody>
-            {savedBills.length === 0 ? (
+            {visibleBills.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-center py-6 text-gray-500">
-                  No bills found. Create one using “Add New Bill”.
+                <TableCell
+                  colSpan={8}
+                  className="text-center py-6 text-gray-500"
+                >
+                  No bills found. Try changing filters or create one using
+                  “Add New Bill”.
                 </TableCell>
               </TableRow>
             ) : (
-              savedBills.map((b) => {
-                const billNo = `INV-${String(b.id).padStart(4, "0")}`;
+              visibleBills.map((b) => {
+                const billNo = getBillNo(b);
+                const itemsCount = getItemsCount(b);
 
                 return (
                   <TableRow key={b.id}>
@@ -156,12 +838,11 @@ const BillingList = () => {
                       <Button
                         size="sm"
                         onClick={() => navigate(`/billing/edit/${b.id}`)}
-                        className="bg-yellow-500 text-white"
+                        className="bg-yellow-500 text-white hover:bg-yellow-600"
                       >
                         <Pencil className="w-4 h-4 mr-1" /> Edit
                       </Button>
 
-                      {/* ✅ FIXED DELETE */}
                       <Button
                         variant="destructive"
                         size="sm"
@@ -176,6 +857,13 @@ const BillingList = () => {
             )}
           </TableBody>
         </Table>
+
+        {/* Small hint for infinite scroll */}
+        {visibleBills.length < filteredAndSortedBills.length && (
+          <p className="text-center text-xs text-gray-400 mt-3">
+            Scroll down to load more...
+          </p>
+        )}
       </div>
     </div>
   );

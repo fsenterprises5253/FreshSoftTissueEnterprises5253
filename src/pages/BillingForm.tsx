@@ -258,11 +258,11 @@ export default function BillingForm() {
                 subtotal
               })
             }
-            className="bg-blue-600"
+            className="bg-blue-600 hover:bg-blue-700"
           >
             <Printer className="w-4 h-4 mr-1" /> Print Bill
           </Button>
-          <Button onClick={saveBill} className="bg-green-600" disabled={saving}><Save className="w-4 h-4 mr-1" /> {saving ? "Saving..." : "Save Bill"}</Button>
+          <Button onClick={saveBill} className="bg-green-600 hover:bg-green-700" disabled={saving}><Save className="w-4 h-4 mr-1" /> {saving ? "Saving..." : "Save Bill"}</Button>
         </div>
       </div>
     </div>
