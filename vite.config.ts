@@ -18,7 +18,7 @@ export default defineConfig(({ mode }) => ({
 
   // ✅ Add this section to control build warnings and performance
   build: {
-    chunkSizeWarningLimit: 1600, // increase limit from default 500 KB → 1.6 MB
+    chunkSizeWarningLimit: 3000, // increase limit from default 500 KB → 3 MB
     sourcemap: false,            // optional: turn off source maps for smaller build
     minify: "esbuild",           // ensure efficient minification
   },
