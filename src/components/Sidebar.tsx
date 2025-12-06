@@ -1,6 +1,6 @@
 import React from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { LayoutGrid, FileText, LogOut, BarChart3 } from "lucide-react"; 
+import { LayoutGrid, FileText, LogOut, BarChart3, BarChart4, ReceiptText, ReceiptIndianRupee, Receipt, Notebook } from "lucide-react"; 
 import EzzyLogo from "@/assets/logo.png";
 
 interface SidebarProps {
@@ -74,7 +74,7 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed = false }) => {
               : "text-blue-600 hover:bg-blue-100"
           }`}
         >
-          <BarChart3
+          <BarChart4
             size={18}
             className={`${isActive("/expense-report") ? "text-white" : "text-blue-600"}`}
           />
@@ -90,7 +90,7 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed = false }) => {
               : "text-blue-600 hover:bg-blue-100"
           }`}
         >
-          <BarChart3
+          <Notebook
             size={18}
             className={`${isActive("/profit") ? "text-white" : "text-blue-600"}`}
           />

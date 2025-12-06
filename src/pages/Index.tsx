@@ -25,7 +25,7 @@ const Index = () => {
   }, []);
 
   return (
-    <div className="min-h-screen bg-background text-gray-900">
+    <div className="min-h-screen bg-gray-50 text-gray-900">
 
       {/* Navbar */}
       <Navbar toggleSidebar={handleToggleSidebar} />

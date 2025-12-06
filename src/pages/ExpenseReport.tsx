@@ -3,6 +3,7 @@ import axios from "axios";
 import { Pencil, Save, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import ModernRangePicker from "@/components/ModernDatePicker";
 
 export interface Expense {
   id?: number;
@@ -379,27 +380,15 @@ export default function ExpenseReport() {
           onChange={(e) => setSearchTerm(e.target.value)}
         />
 
-        {/* From Date */}
-        <div className="flex flex-col">
-          <label className="text-xs mb-1">From Date</label>
-          <input
-            type="date"
-            className="border rounded-lg px-3 py-2"
-            value={fromDate}
-            onChange={(e) => setFromDate(e.target.value)}
-          />
-        </div>
-
-        {/* To Date */}
-        <div className="flex flex-col">
-          <label className="text-xs mb-1">To Date</label>
-          <input
-            type="date"
-            className="border rounded-lg px-3 py-2"
-            value={toDate}
-            onChange={(e) => setToDate(e.target.value)}
-          />
-        </div>
+        {/* Date */}
+        <ModernRangePicker
+          label="Date Range"
+          value={{ from: fromDate ? new Date(fromDate) : undefined, to: toDate ? new Date(toDate) : undefined }}
+          onChange={(range) => { 
+            setFromDate(range.from ? range.from.toISOString().split("T")[0] : "");
+            setToDate(range.to ? range.to.toISOString().split("T")[0] : "");
+          }}
+        />      
 
         {/* EXPORT & RESET */}
         <div className="w-full flex items-center justify-between mt-3">

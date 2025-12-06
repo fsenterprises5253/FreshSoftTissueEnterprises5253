@@ -25,6 +25,7 @@ import { DropdownMenuPortal } from "@radix-ui/react-dropdown-menu";
 import * as XLSX from "xlsx";                        // For XLSX export
 import jsPDF from "jspdf";                           // For PDF export
 import autoTable from "jspdf-autotable";             // Table support for PDF
+import ModernRangePicker from "@/components/ModernDatePicker";
 
 
 
@@ -105,6 +106,7 @@ const ProfitDashboard: React.FC = () => {
     return localStorage.getItem("chartView") || "both";
   });
   const modalRef = useRef(null);
+  const filterModalRef = useRef(null);
   const [showTableFilter, setShowTableFilter] = useState(false);
   const [activeFilterTab, setActiveFilterTab] = useState("sort");
   const [visibleLedger, setVisibleLedger] = useState<"both" | "profit" | "expense">("both");
@@ -685,7 +687,10 @@ const ProfitDashboard: React.FC = () => {
       {/* TABLE FILTER POPUP */}
       {showTableFilter && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[999]">
-          <div className="bg-white rounded-xl shadow-xl w-[90%] max-w-3xl p-6 relative animate-fade-in">
+          <div
+            ref={filterModalRef}
+            className="bg-white rounded-xl shadow-xl w-[90%] max-w-3xl p-6 relative animate-fade-in overflow-visible"
+          >
 
             {/* Close Button */}
             <button
@@ -741,33 +746,25 @@ const ProfitDashboard: React.FC = () => {
               {/* RIGHT FILTER OPTIONS */}
               <div className="w-2/3 pl-6 space-y-4">
 
-                {/* From Date */}
-                <div>
-                  <label className="text-sm font-medium">From Date</label>
-                  <input
-                    type="date"
-                    className="border rounded px-3 py-2 w-full"
-                    value={fromDate}
-                    onChange={(e) => setFromDate(e.target.value)}
-                  />
+                {/* Date */}
+                <div className="relative z-[99999]">
+                <ModernRangePicker
+                  label="Date Range"
+                  portalContainer={filterModalRef.current}
+                  value={{ from: fromDate ? new Date(fromDate) : undefined, to: toDate ? new Date(toDate) : undefined }}
+                  onChange={(range) => {
+                    setFromDate(range.from ? range.from.toISOString().split("T")[0] : "");
+                    setToDate(range.to ? range.to.toISOString().split("T")[0] : "");
+                  }}
+                />
                 </div>
 
-                {/* To Date */}
-                <div>
-                  <label className="text-sm font-medium">To Date</label>
-                  <input
-                    type="date"
-                    className="border rounded px-3 py-2 w-full"
-                    value={toDate}
-                    onChange={(e) => setToDate(e.target.value)}
-                  />
-                </div>
-
+                <div className="flex gap-4">
                 {/* Description */}
                 <div>
                   <label className="text-sm font-medium">Description</label>
                   <select
-                    className="border rounded px-3 py-2 w-full"
+                    className="border rounded-xl px-3 py-2 w-full"
                     value={filterDescription}
                     onChange={(e) => setFilterDescription(e.target.value)}
                   >
@@ -786,7 +783,7 @@ const ProfitDashboard: React.FC = () => {
                 <div>
                   <label className="text-sm font-medium">GSM</label>
                   <select
-                    className="border rounded px-3 py-2 w-full"
+                    className="border rounded-xl px-3 py-2 w-full"
                     value={filterGsm}
                     onChange={(e) => setFilterGsm(e.target.value)}
                   >
@@ -801,6 +798,7 @@ const ProfitDashboard: React.FC = () => {
                   </select>
                 </div>
               </div>
+            </div>
             </div>
 
             {/* Bottom Buttons */}

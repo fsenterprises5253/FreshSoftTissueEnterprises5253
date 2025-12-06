@@ -11,6 +11,9 @@ import {
 import { Trash2, Eye, Pencil } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import ModernDatePicker from "@/components/ModernDatePicker";
 
 // ================= TYPES =================
 interface SavedBill {
@@ -57,6 +60,9 @@ const BillingList = () => {
   // SORT + INFINITE SCROLL
   const [sortConfig, setSortConfig] = useState<SortConfig | null>(null);
   const [visibleCount, setVisibleCount] = useState<number>(PAGE_SIZE);
+  const selectedDate = fromDate ? new Date(fromDate) : new Date();
+  const selectedMonth = selectedDate.getMonth();
+  const selectedYear = selectedDate.getFullYear();
 
   // ✅ FETCH BILLS
   const fetchBills = async () => {
@@ -631,67 +637,52 @@ const BillingList = () => {
       </div>
 
       {/* SEARCH + FILTER BAR */}
-      <div className="border rounded-lg p-4 bg-white shadow-md space-y-4">
-        <div className="flex flex-wrap items-center gap-4">
-          <input
-            type="text"
-            placeholder="Search "
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="border px-4 py-2 rounded-lg shadow-sm min-w-[260px] flex-1"
-          />
+      <div className="border rounded-2xl p-5 bg-white shadow-sm">
+        <div className="flex flex-wrap items-end gap-6">
 
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex flex-col">
-              <label className="text-xs mb-1">From Date</label>
-              <input
-                type="date"
-                value={fromDate}
-                onChange={(e) => setFromDate(e.target.value)}
-                className="border px-3 py-1 rounded-md text-sm"
-              />
-            </div>
+          {/* SEARCH */}
+          <div className="flex flex-col flex-1 min-w-[240px]">
+            <label className="text-xs font-medium text-gray-600 mb-1">Search</label>
+            <input
+              type="text"
+              placeholder="Search "
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="border px-4 py-2 rounded-xl text-sm shadow-sm focus:ring-2 focus:ring-blue-300 outline-none"
+            />
+          </div>
 
-            <div className="flex flex-col">
-              <label className="text-xs mb-1">To Date</label>
-              <input
-                type="date"
-                value={toDate}
-                onChange={(e) => setToDate(e.target.value)}
-                className="border px-3 py-1 rounded-md text-sm"
-              />
-            </div>
+          {/* DATE RANGE PICKER */}
+          <div className="flex flex-col min-w-[220px]">
+            <label className="text-xs font-medium text-gray-600 mb-1">Date</label>
+            <ModernDatePicker
+              label=""
+              value={{
+                from: fromDate ? new Date(fromDate) : undefined,
+                to: toDate ? new Date(toDate) : undefined,
+              }}
+              onChange={(range) => {
+                setFromDate(range?.from ? range.from.toISOString().split("T")[0] : "");
+                setToDate(range?.to ? range.to.toISOString().split("T")[0] : "");
+              }}
+            />
+          </div>
 
-            <div className="flex flex-col">
-              <label className="text-xs mb-1">Status</label>
-              <select
-                value={filterStatus}
-                onChange={(e) => setFilterStatus(e.target.value)}
-                className="border px-3 py-1 rounded-md text-sm"
-              >
-                <option value="All">All</option>
-                {statusOptions.map((st) => (
-                  <option key={st} value={st}>
-                    {st === "Pending" ? "New Invoice" : st}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="flex flex-col">
-              <label className="text-xs mb-1">Payment Mode</label>
-              <select
-                value={filterPaymentMode}
-                onChange={(e) => setFilterPaymentMode(e.target.value)}
-                className="border px-3 py-1 rounded-md text-sm"
-              >
-                <option value="All">All</option>
-                {paymentModeOptions.map((pm) => (
-                  <option key={pm} value={pm}>
-                    {pm}
-                  </option>
-                ))}
-              </select>
+          {/* Payment Mode */}
+          <div className="flex flex-col min-w-[160px]">
+            <label className="text-xs font-medium text-gray-600 mb-1">Payment Mode</label>
+            <select
+              value={filterPaymentMode}
+              onChange={(e) => setFilterPaymentMode(e.target.value)}
+              className="border px-3 py-2 rounded-xl text-sm shadow-sm focus:ring-2 focus:ring-blue-300 outline-none"
+            >
+              <option value="All">All</option>
+              {paymentModeOptions.map((mode) => (
+                <option key={mode} value={mode}>
+                  {mode}
+                </option>
+              ))}
+            </select>
             </div>
           </div>
         </div>
@@ -731,7 +722,6 @@ const BillingList = () => {
             Clear Filters
           </Button>
         </div>
-      </div>
 
       {/* TABLE */}
       <div className="border rounded-lg p-6 bg-white shadow-md">
