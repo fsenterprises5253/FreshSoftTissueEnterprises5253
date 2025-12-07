@@ -34,7 +34,7 @@ export default function ModernRangePicker({
         <PopoverTrigger asChild>
           <Button
             variant="outline"
-            className="w-[220px] justify-start text-left text-black hover:text-black bg-white hover:bg-slate-100 flex items-center gap-2 font-normal"
+            className="w-[220px] justify-start text-left text-black hover:text-black bg-white hover:bg-slate-100 flex items-center gap-2 font-normal rounded-xl"
           >
             <CalendarIcon className="w-4 h-4" />
             {value?.from && value?.to

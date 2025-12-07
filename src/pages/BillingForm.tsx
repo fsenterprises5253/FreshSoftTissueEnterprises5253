@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Plus, Save, X, Printer } from "lucide-react";
@@ -39,7 +39,13 @@ export default function BillingForm() {
   const [customPrice, setCustomPrice] = useState<number | "">("");
 
   const [billItems, setBillItems] = useState<BillItem[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
   const [customerName, setCustomerName] = useState("");
+
+  // ⭐ NEW: CUSTOMER NAME HISTORY
+  const [customerNames, setCustomerNames] = useState<string[]>([]);
+
   const [billDate, setBillDate] = useState(new Date().toISOString().slice(0, 10));
   const [paymentMode, setPaymentMode] = useState("");
   const [status, setStatus] = useState("Pending");
@@ -59,6 +65,38 @@ export default function BillingForm() {
     } catch (err) {
       console.error(err);
       toast.error("Failed to load stock");
+    }
+  }
+
+  // ⭐ NEW: LOAD SAVED CUSTOMER NAMES
+  useEffect(() => {
+    const list = JSON.parse(localStorage.getItem("customerNames") || "[]");
+    setCustomerNames(list);
+  }, []);
+
+  // ⭐ NEW: CLOSE DROPDOWN WHEN CLICKING OUTSIDE
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(event.target as Node)
+      ) {
+        setShowSuggestions(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // ⭐ NEW: FUNCTION TO SAVE CUSTOMER TO LOCAL STORAGE
+  function saveCustomerName(name: string) {
+    if (!name) return;
+
+    let list = JSON.parse(localStorage.getItem("customerNames") || "[]");
+
+    if (!list.some((n: string) => n.toLowerCase() === name.toLowerCase())) {
+      list.push(name);
+      localStorage.setItem("customerNames", JSON.stringify(list));
     }
   }
 
@@ -92,16 +130,17 @@ export default function BillingForm() {
       return;
     }
 
-    const price = customPrice !== "" && Number(customPrice) > 0
-      ? Number(customPrice)
-      : selectedPart.selling_price;
+    const price =
+      customPrice !== "" && Number(customPrice) > 0
+        ? Number(customPrice)
+        : selectedPart.selling_price;
 
     const newItem: BillItem = {
       gsm_number: selectedPart.gsm_number,
       description: selectedPart.description,
       quantity,
       price,
-      total: price * quantity
+      total: price * quantity,
     };
 
     setBillItems(prev => [...prev, newItem]);
@@ -116,78 +155,132 @@ export default function BillingForm() {
 
   const subtotal = billItems.reduce((sum, item) => sum + item.total, 0);
 
-  // ============ SAVE BILL (NEW UNIFIED TABLE) ============
+  // ============ SAVE BILL ============
   async function saveBill() {
-  if (!customerName || !paymentMode || !status || !billDate) {
-    toast.error("Fill all bill details");
-    return;
-  }
-
-  if (billItems.length === 0) {
-    toast.error("Add at least one item");
-    return;
-  }
-
-  setSaving(true);
-
-  const payload = {
-    customer_name: customerName,
-    payment_mode: paymentMode,
-    status,
-    bill_date: billDate,
-    subtotal,
-    items: billItems.map(i => ({
-      gsm_number: Number(i.gsm_number),
-      description: i.description,
-      quantity: Number(i.quantity),
-      price: Number(i.price),
-      total: Number(i.total)
-    }))
-  };
-
-  try {
-    const res = await fetch("http://localhost:5000/api/billing", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-
-    const data = await res.json();
-
-    if (!res.ok) {
-      toast.error(data?.error || "Failed to save bill");
+    if (!customerName || !paymentMode || !status || !billDate) {
+      toast.error("Fill all bill details");
       return;
     }
 
-    const billNumber = data.bill_number || `INV-${String(data.id).padStart(4, "0")}`;
-    setSavedBillNumber(billNumber);
+    if (billItems.length === 0) {
+      toast.error("Add at least one item");
+      return;
+    }
 
-    toast.success(`Bill saved successfully (${billNumber})`);
-    navigate("/billing");
+    setSaving(true);
 
-  } catch (err) {
-    console.error("SAVE BILL ERROR:", err);
-    toast.error("Server error while saving bill");
-  } finally {
-    setSaving(false);
+    const payload = {
+      customer_name: customerName,
+      payment_mode: paymentMode,
+      status,
+      bill_date: billDate,
+      subtotal,
+      items: billItems.map(i => ({
+        gsm_number: Number(i.gsm_number),
+        description: i.description,
+        quantity: Number(i.quantity),
+        price: Number(i.price),
+        total: Number(i.total),
+      })),
+    };
+
+    try {
+      const res = await fetch("http://localhost:5000/api/billing", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        toast.error(data?.error || "Failed to save bill");
+        return;
+      }
+
+      const billNumber =
+        data.bill_number || `INV-${String(data.id).padStart(4, "0")}`;
+      setSavedBillNumber(billNumber);
+
+      // ⭐ NEW: SAVE CUSTOMER NAME
+      saveCustomerName(customerName);
+
+      toast.success(`Bill saved successfully (${billNumber})`);
+      navigate("/billing");
+    } catch (err) {
+      console.error("SAVE BILL ERROR:", err);
+      toast.error("Server error while saving bill");
+    } finally {
+      setSaving(false);
+    }
   }
-}
 
   // ================= UI =================
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-6">
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold">Add New Bill</h1>
-        <Button variant="destructive" onClick={() => navigate("/billing")}> 
+        <Button variant="destructive" onClick={() => navigate("/billing")}>
           <X className="w-4 h-4 mr-1" /> Cancel
         </Button>
       </div>
 
-      <Input placeholder="Customer Name" value={customerName} onChange={e => setCustomerName(e.target.value)} className="max-w-md" />
-      <Input type="date" value={billDate} onChange={e => setBillDate(e.target.value)} className="w-48" />
+      {/* ⭐ UPDATED CUSTOMER NAME FIELD */}
+      <div ref={dropdownRef} className="relative max-w-md">
+        <Input
+          placeholder="Customer Name"
+          value={customerName}
+          onChange={e => {
+            setCustomerName(e.target.value)
+            setShowSuggestions(true);
+          }}
+          onFocus={() => setShowSuggestions(true)}
+          className="w-full"
+        />
+
+        {/* Dropdown */}
+        {showSuggestions && customerName.length > 0 && (
+          <div className="absolute z-20 w-full bg-white border rounded-md shadow-lg max-h-40 overflow-y-auto">
+            {customerNames
+              .filter((n) =>
+                n.toLowerCase().includes(customerName.toLowerCase())
+              )
+              .map((name, index) => (
+                <div
+                  key={index}
+                  onClick={() => {
+                    setCustomerName(name);
+                    setShowSuggestions(false);
+                  }}
+                  className="px-3 py-2 cursor-pointer hover:bg-gray-100"
+                >
+                  {name}
+                </div>
+              ))}
+
+              {/* If no match, show option */}
+            {customerNames.filter((n) =>
+              n.toLowerCase().includes(customerName.toLowerCase())
+              ).length === 0 && (
+              <div className="px-3 py-2 text-gray-400">No suggestions</div>
+              )}
+          </div>
+        )}
+      </div>
+
+      <Input
+        type="date"
+        value={billDate}
+        onChange={e => setBillDate(e.target.value)}
+        className="w-48"
+      />
 
       <div className="flex gap-4 mt-4">
-        <select value={paymentMode} onChange={e => setPaymentMode(e.target.value)} className="border rounded-md p-2 w-44">
+        <select
+          value={paymentMode}
+          onChange={e => setPaymentMode(e.target.value)}
+          className="border rounded-md p-2 w-44"
+        >
           <option value="">Select Payment Mode</option>
           <option value="Cash">Cash</option>
           <option value="UPI">UPI</option>
@@ -195,7 +288,11 @@ export default function BillingForm() {
           <option value="Card">Card</option>
         </select>
 
-        <select value={status} onChange={e => setStatus(e.target.value)} className="border rounded-md p-2 w-44">
+        <select
+          value={status}
+          onChange={e => setStatus(e.target.value)}
+          className="border rounded-md p-2 w-44"
+        >
           <option value="Paid">Paid</option>
           <option value="Unpaid">Unpaid</option>
           <option value="Pending">New Invoice</option>
