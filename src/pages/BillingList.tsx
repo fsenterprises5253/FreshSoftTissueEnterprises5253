@@ -654,7 +654,7 @@ const BillingList = () => {
 
           {/* DATE RANGE PICKER */}
           <div className="flex flex-col min-w-[220px]">
-            <label className="text-xs font-medium text-gray-600 mb-1">Date</label>
+            <label className="text-xs font-medium text-gray-600 mb-1">Date mm/dd/yyyy</label>
             <ModernDatePicker
               label=""
               value={{
@@ -746,7 +746,7 @@ const BillingList = () => {
                 className="cursor-pointer"
                 onClick={() => handleSort("bill_date")}
               >
-                Date{getSortIndicator("bill_date")}
+                Date (MM/DD/YYYY){getSortIndicator("bill_date")}
               </TableHead>
               <TableHead
                 className="cursor-pointer"

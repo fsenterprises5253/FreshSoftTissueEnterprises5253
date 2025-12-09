@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Plus, Save, X, Printer } from "lucide-react";
 import { toast } from "sonner";
 import { printBillInvoice } from "@/lib/BillingPrint";
+import { DialogHeader,Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 
 interface StockItem {
   id: number;
@@ -32,7 +33,7 @@ const BillingEdit = () => {
   const [billDate, setBillDate] = useState("");
   const [paymentMode, setPaymentMode] = useState("");
   const [status, setStatus] = useState("");
-
+  const [showGSTPopup, setShowGSTPopup] = useState(false);
   const [stockList, setStockList] = useState<StockItem[]>([]);
   const [billItems, setBillItems] = useState<BillItem[]>([]);
 
@@ -57,7 +58,16 @@ const BillingEdit = () => {
 
       setBillNumber(bill.bill_number);
       setCustomerName(bill.customer_name);
-      setBillDate(bill.bill_date?.split("T")[0]);
+      if (bill.bill_date) {
+        const d = new Date(bill.bill_date);
+        const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000)
+          .toISOString()
+          .split("T")[0];
+
+        setBillDate(local);
+      } else {
+        setBillDate("");
+      }
       setPaymentMode(bill.payment_mode || "");
       setStatus(bill.status || "");
     } catch (err) {
@@ -190,6 +200,25 @@ const BillingEdit = () => {
     }
   };
 
+  const handlePrint = (withGST: boolean) => {
+    printBillInvoice({
+      billNumber: billNumber || "",
+      customerName,
+      billDate,
+      paymentMode,
+      items: billItems.map((it) => ({
+        gsm_number: it.gsm_number,
+        description: it.description,
+        quantity: Number(it.quantity),
+        price: Number(it.price),
+        total: Number(it.total),
+      })),
+      subtotal: Number(subtotal),
+      status,
+      gst: withGST, // Send GST flag
+    });
+  };
+
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-6">
       <div className="flex justify-between items-center">
@@ -210,7 +239,11 @@ const BillingEdit = () => {
       />
 
       {/* Date */}
-      <Input type="date" value={billDate} onChange={(e) => setBillDate(e.target.value)} />
+      <Input 
+        type="date" 
+        value={billDate} 
+        onChange={(e) => setBillDate(e.target.value)} 
+      />
 
       {/* Payment */}
       <div className="flex gap-4">
@@ -381,23 +414,7 @@ const BillingEdit = () => {
       <div className="flex gap-3">
         <Button
           className="bg-blue-600 text-white"
-          onClick={() =>
-            printBillInvoice({
-              billNumber: billNumber || "",
-              customerName,
-              billDate,
-              paymentMode,
-              items: billItems.map((it) => ({
-                gsm_number: it.gsm_number,
-                description: it.description,
-                quantity: Number(it.quantity),
-                price: Number(it.price),
-                total: Number(it.total),
-              })),
-              subtotal: Number(subtotal),
-              status, 
-            })
-          }
+          onClick={() => setShowGSTPopup(true)}
         >
           <Printer className="w-4 h-4 mr-1" /> Print Invoice
         </Button>
@@ -406,6 +423,52 @@ const BillingEdit = () => {
           <Save className="w-4 h-4 mr-1" /> Save Changes
         </Button>
       </div>
+
+      {/* GST Confirmation Popup */}
+      <Dialog open={showGSTPopup} onOpenChange={setShowGSTPopup}>
+        <DialogContent className="max-w-md p-6 rounded-xl shadow-lg">
+          <DialogHeader>
+            <DialogTitle className="text-center text-xl font-semibold">
+              Select GST Option
+            </DialogTitle>
+            <DialogDescription className="text-center">
+              Choose how you want to print the invoice.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex justify-between gap-4 mt-4">
+            <Button
+              className="bg-green-600 hover:bg-green-700 text-white w-full py-3 rounded-lg text-md font-semibold"
+              onClick={() => {
+                setShowGSTPopup(false);
+                handlePrint(true); // WITH GST
+              }}
+            >
+              Print WITH GST
+            </Button>
+
+            <Button
+              className="bg-red-600 hover:bg-red-700 text-white w-full py-3 rounded-lg text-md font-semibold"
+              onClick={() => {
+                setShowGSTPopup(false);
+                handlePrint(false); // WITHOUT GST
+              }}
+            >
+              Print WITHOUT GST
+            </Button>
+          </div>
+
+          <div className="mt-4">
+            <Button
+              variant="outline"
+              className="w-full py-3 rounded-lg text-md font-semibold bg-white hover:bg-gray-400"
+              onClick={() => setShowGSTPopup(false)}
+            >
+              Cancel
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

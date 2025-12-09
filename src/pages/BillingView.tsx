@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { printBillInvoice } from "@/lib/BillingPrint";
 import { PrinterIcon } from "lucide-react";
+import { DialogHeader,Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 
 interface BillItem {
   id: number;
@@ -26,10 +27,16 @@ interface Bill {
 }
 
 export default function BillingView() {
+  const formatDate = (dateString?: string) => {
+    if (!dateString) return "—";
+    const d = new Date(dateString);
+    return d.toLocaleDateString("en-GB"); // DD/MM/YYYY
+  };
   const { id } = useParams();
   const navigate = useNavigate();
   const [bill, setBill] = useState<Bill | null>(null);
   const [items, setItems] = useState<BillItem[]>([]);
+  const [showGSTPopup, setShowGSTPopup] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -61,6 +68,20 @@ export default function BillingView() {
     }
   }
 
+  const handlePrint = (withGST: boolean) => {
+    printBillInvoice({
+      bill,
+      items,
+      billNumber: bill?.bill_number ?? `INV-${String(bill?.id ?? "").padStart(4, "0")}`,
+      customerName: bill?.customer_name,
+      billDate: bill?.bill_date,
+      paymentMode: bill?.payment_mode,
+      subtotal: bill?.subtotal,
+      status: bill?.status,
+      gst: withGST, // Send GST flag
+    });
+  };
+
   return (
     <div className="p-6 max-w-4xl mx-auto">
       <div className="flex justify-between items-center">
@@ -75,7 +96,7 @@ export default function BillingView() {
 
       <div className="mt-4">
         <p><strong>Customer:</strong> {bill?.customer_name ?? "—"}</p>
-        <p><strong>Date:</strong> {bill?.bill_date ?? "—"}</p>
+        <p><strong>Date:</strong> {formatDate(bill?.bill_date)}</p>
         <p><strong>Payment:</strong> {bill?.payment_mode ?? "—"}</p>
         <p><strong>Status:</strong> {bill?.status ?? "—"}</p>
       </div>
@@ -113,22 +134,59 @@ export default function BillingView() {
         <div className="mt-8 flex justify-end">
           <div className="flex gap-3">
             <Button
-              onClick={() => printBillInvoice({
-                bill, 
-                items, 
-                billNumber: bill?.bill_number ?? `INV-${String(bill?.id ?? "").padStart(4,"0")}`, 
-                customerName: bill?.customer_name, 
-                billDate: bill?.bill_date, 
-                paymentMode: bill?.payment_mode, 
-                subtotal: bill?.subtotal, 
-                status: bill?.status
-              })}
+              onClick={() => setShowGSTPopup(true)}
               className="bg-blue-600"
             >
               <PrinterIcon className="w-4 h-4 mr-1" /> Print Bill
             </Button>
           </div>
         </div>
+
+        {/* GST Confirmation Popup */}
+      <Dialog open={showGSTPopup} onOpenChange={setShowGSTPopup}>
+        <DialogContent className="max-w-md p-6 rounded-xl shadow-lg">
+          <DialogHeader>
+            <DialogTitle className="text-center text-xl font-semibold">
+              Select GST Option
+            </DialogTitle>
+            <DialogDescription className="text-center">
+              Choose how you want to print the invoice.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex justify-between gap-4 mt-4">
+            <Button
+              className="bg-green-600 hover:bg-green-700 text-white w-full py-3 rounded-lg text-md font-semibold"
+              onClick={() => {
+                setShowGSTPopup(false);
+                handlePrint(true); // WITH GST
+              }}
+            >
+              Print WITH GST
+            </Button>
+
+            <Button
+              className="bg-red-600 hover:bg-red-700 text-white w-full py-3 rounded-lg text-md font-semibold"
+              onClick={() => {
+                setShowGSTPopup(false);
+                handlePrint(false); // WITHOUT GST
+              }}
+            >
+              Print WITHOUT GST
+            </Button>
+          </div>
+
+          <div className="mt-4">
+            <Button
+              variant="outline"
+              className="w-full py-3 rounded-lg text-md font-semibold bg-white hover:bg-gray-400"
+              onClick={() => setShowGSTPopup(false)}
+            >
+              Cancel
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

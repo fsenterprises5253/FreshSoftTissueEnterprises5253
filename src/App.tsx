@@ -14,7 +14,6 @@ import ProfitDashboard from "@/pages/ProfitDashboard";
 import NotFound from "@/pages/NotFound";
 import Login from "@/pages/Login";
 import InvoiceForm from "@/pages/InvoiceForm";
-
 import Users from "@/pages/Users";        // ⭐ NEW PAGE
 
 import ProtectedRoute from "@/components/ProtectedRoute";

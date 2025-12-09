@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import { getStock } from "@/api/stock";
 import { printBillInvoice } from "@/lib/BillingPrint";
+import { DialogHeader,Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 
 // ================= TYPES =================
 interface StockItem {
@@ -40,9 +41,10 @@ export default function BillingForm() {
 
   const [billItems, setBillItems] = useState<BillItem[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [highlightIndex, setHighlightIndex] = useState(-1);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [customerName, setCustomerName] = useState("");
-
+  const [showGSTPopup, setShowGSTPopup] = useState(false);
   // ⭐ NEW: CUSTOMER NAME HISTORY
   const [customerNames, setCustomerNames] = useState<string[]>([]);
 
@@ -215,6 +217,19 @@ export default function BillingForm() {
     }
   }
 
+  const handlePrint = (withGST: boolean) => {
+    printBillInvoice({
+      billNumber: savedBillNumber ?? "",
+      customerName,
+      billDate,
+      paymentMode,
+      items: billItems,
+      subtotal: Number(subtotal),
+      status,
+      gst: withGST, // Send GST flag
+    });
+  };
+
   // ================= UI =================
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-6">
@@ -231,10 +246,45 @@ export default function BillingForm() {
           placeholder="Customer Name"
           value={customerName}
           onChange={e => {
-            setCustomerName(e.target.value)
+            setCustomerName(e.target.value);
             setShowSuggestions(true);
+            setHighlightIndex(-1);
           }}
           onFocus={() => setShowSuggestions(true)}
+          onKeyDown={(e) => {
+            if (e.key === "Tab") {
+              setShowSuggestions(false);
+              return;
+            }
+
+            const filtered = customerNames.filter((n) =>
+              n.toLowerCase().includes(customerName.toLowerCase())
+            );
+
+            if (e.key === "ArrowDown") {
+              e.preventDefault();
+              setHighlightIndex((prev) =>
+                prev < filtered.length - 1 ? prev + 1 : prev
+              );
+            }
+
+            if (e.key === "ArrowUp") {
+              e.preventDefault();
+              setHighlightIndex((prev) => (prev > 0 ? prev - 1 : 0));
+            }
+
+            if (e.key === "Enter") {
+              e.preventDefault();
+              if (highlightIndex >= 0 && highlightIndex < filtered.length) {
+                setCustomerName(filtered[highlightIndex]);
+                setShowSuggestions(false);
+              }
+            }
+
+            if (e.key === "Escape") {
+              setShowSuggestions(false);
+            }
+          }}
           className="w-full"
         />
 
@@ -252,7 +302,12 @@ export default function BillingForm() {
                     setCustomerName(name);
                     setShowSuggestions(false);
                   }}
-                  className="px-3 py-2 cursor-pointer hover:bg-gray-100"
+                  className={
+                    "px-3 py-2 cursor-pointer " +
+                    (highlightIndex === index
+                      ? "bg-blue-600 text-white"
+                      : "hover:bg-gray-100")
+                  }
                 >
                   {name}
                 </div>
@@ -345,17 +400,7 @@ export default function BillingForm() {
         <div className="text-lg font-semibold">Total: ₹{subtotal.toFixed(2)}</div>
         <div className="flex gap-3">
           <Button
-            onClick={() =>
-              printBillInvoice({
-                billNumber: savedBillNumber ?? "",
-                customerName,
-                billDate,
-                paymentMode,
-                items: billItems,
-                subtotal,
-                status,
-              })
-            }
+            onClick={() => setShowGSTPopup(true)}
             className="bg-blue-600 hover:bg-blue-700"
           >
             <Printer className="w-4 h-4 mr-1" /> Print Bill
@@ -363,6 +408,52 @@ export default function BillingForm() {
           <Button onClick={saveBill} className="bg-green-600 hover:bg-green-700" disabled={saving}><Save className="w-4 h-4 mr-1" /> {saving ? "Saving..." : "Save Bill"}</Button>
         </div>
       </div>
+
+      {/* GST Confirmation Popup */}
+      <Dialog open={showGSTPopup} onOpenChange={setShowGSTPopup}>
+        <DialogContent className="max-w-md p-6 rounded-xl shadow-lg">
+          <DialogHeader>
+            <DialogTitle className="text-center text-xl font-semibold">
+              Select GST Option
+            </DialogTitle>
+            <DialogDescription className="text-center">
+              Choose how you want to print the invoice.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex justify-between gap-4 mt-4">
+            <Button
+              className="bg-green-600 hover:bg-green-700 text-white w-full py-3 rounded-lg text-md font-semibold"
+              onClick={() => {
+                setShowGSTPopup(false);
+                handlePrint(true); // WITH GST
+              }}
+            >
+              Print WITH GST
+            </Button>
+
+            <Button
+              className="bg-red-600 hover:bg-red-700 text-white w-full py-3 rounded-lg text-md font-semibold"
+              onClick={() => {
+                setShowGSTPopup(false);
+                handlePrint(false); // WITHOUT GST
+              }}
+            >
+              Print WITHOUT GST
+            </Button>
+          </div>
+
+          <div className="mt-4">
+            <Button
+              variant="outline"
+              className="w-full py-3 rounded-lg text-md font-semibold bg-white hover:bg-gray-400"
+              onClick={() => setShowGSTPopup(false)}
+            >
+              Cancel
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

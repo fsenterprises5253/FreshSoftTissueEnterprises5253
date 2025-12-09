@@ -14,6 +14,11 @@ export interface PrintBillData {
 }
 
 export function printBillInvoice(data: any) {
+  const { items, subtotal, gst } = data;
+
+  const taxAmount = gst ? subtotal * 0.18 : 0;
+  const total = subtotal + taxAmount;
+  
   const win = window.open("", "_blank");
   if (!win) return;
 
@@ -103,6 +108,18 @@ export function printBillInvoice(data: any) {
           }
 
           .right-contact-title {
+            color: #0F4C3A;
+            font-weight: bold;
+            font-size: 16px; 
+          }
+
+          .left-contact {
+            text-align: left;
+            font-size: 14px;
+            text-align: left;
+          }
+
+          .left-contact-title {
             color: #0F4C3A;
             font-weight: bold;
             font-size: 16px; 
@@ -202,8 +219,17 @@ export function printBillInvoice(data: any) {
                 ${new Date(data.billDate).toLocaleDateString("en-GB").replace(/\//g, "-")}<br/>
                 ${data.paymentMode}
               </div>
-            
 
+              ${
+                gst
+                  ? `
+              <div class="left-contact">
+                <div class="left-contact-title">Tax Details</div>
+                Tax Invoice :-  27AAACH7409R1Z1<br/>
+              </div>`
+                  : ''
+              }
+            
             <table>
               <thead>
                 <tr>
@@ -226,10 +252,15 @@ export function printBillInvoice(data: any) {
                 <td>Subtotal:</td>
                 <td style="text-align:right;">₹${data.subtotal}</td>
               </tr>
+              ${
+                gst
+                  ? `
               <tr>
                 <td>Tax (18%):</td>
                 <td style="text-align:right;">₹${(data.subtotal * 0.18).toFixed(2)}</td>
-              </tr>
+              </tr>`
+                  : ''
+              }
               <tr>
                 <td class="grand-total">Total:</td>
                 <td class="grand-total" style="text-align:right;">₹${(data.subtotal * 1.18).toFixed(2)}</td>
@@ -261,7 +292,7 @@ export function printBillInvoice(data: any) {
                   pointer-events: none;
                   z-index: 0;
                 ">
-                  Fs Enterprise
+                  Fs Enterprises
                 </div>
               ` : ''}
 
